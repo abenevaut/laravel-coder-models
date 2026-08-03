@@ -188,10 +188,15 @@ def run_pipeline(docs_root: Path, skip_files: set[str], max_workers: int = 4) ->
     
     # Detect global version from documentation
     global_version = _detect_global_version(docs_root, skip_files)
+    version_info = f"Detected version: {global_version}" if global_version else "No version detected"
+    print(f"{version_info}", file=sys.stderr)
     
     all_qa = []
     sections_by_doc = {}
     errors = []
+    
+    total_files = len(md_files)
+    print(f"Processing {total_files} markdown files with {max_workers} workers...", file=sys.stderr)
     
     # Process files in parallel
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -200,25 +205,38 @@ def run_pipeline(docs_root: Path, skip_files: set[str], max_workers: int = 4) ->
             for md_file in md_files
         }
         
+        completed = 0
         for future in as_completed(future_to_file):
             md_file = future_to_file[future]
+            completed += 1
+            print(f"[{completed}/{total_files}] Processing: {md_file.name}", file=sys.stderr)
             try:
                 result = future.result()
                 
                 # Check for errors in result
                 if result.get("error"):
                     errors.append(f"{md_file}: {result['error']}")
+                    print(f"  [{md_file.name}] Error: {result['error']}", file=sys.stderr)
                     continue
                 
                 all_qa.extend(result.get("qa_items", []))
                 if result.get("sections"):
                     sections_by_doc[result["doc_name"]] = result["sections"]
+                
+                qa_count = len(result.get("qa_items", []))
+                section_count = len(result.get("sections", []))
+                print(f"  [{md_file.name}] Completed: {qa_count} Q&A items, {section_count} sections", file=sys.stderr)
             except Exception as e:
                 errors.append(f"{md_file}: {e}")
+                print(f"  [{md_file.name}] Exception: {e}", file=sys.stderr)
     
     # Print errors if any occurred
     if errors:
         for error in errors:
             print(f"Warning: {error}", file=sys.stderr)
+    
+    total_qa = len(all_qa)
+    total_docs = len(sections_by_doc)
+    print(f"Pipeline complete: {total_qa} total Q&A items from {total_docs} documents", file=sys.stderr)
     
     return all_qa, sections_by_doc, global_version

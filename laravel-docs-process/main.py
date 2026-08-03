@@ -101,8 +101,9 @@ def qualify_with_llm(all_qa: list[dict]) -> list[dict]:
     Adds qualification metadata:
     - useful: bool (is the Q&A useful for Laravel experts)
     - tags: list of 3 technical tags
-    - level: "débutant"|"intermédiaire"|"avancé"
+    - niveau/level: "débutant"|"intermédiaire"|"avancé"
     - has_code: bool (contains valid PHP code)
+    - weight: float (for weighted loss fine-tuning)
     
     Args:
         all_qa: List of Q&A pairs
@@ -182,10 +183,59 @@ def main():
         # Calculate statistics
         useful_count = sum(1 for qa in all_qa if qa.get("qualification", {}).get("useful", True))
         has_code_count = sum(1 for qa in all_qa if qa.get("qualification", {}).get("has_code", False))
+        total_weight = sum(qa.get("weight", 1.0) for qa in all_qa)
+        
+        # Calculate KPIs for training data quality
+        # Valid code rate (from qualification or has_code in output)
+        total_with_code = has_code_count
+        valid_code_rate = (total_with_code / len(all_qa) * 100) if all_qa else 0.0
+        
+        # Average response length (output tokens approximation)
+        total_output_length = sum(len(qa.get("output", "").split()) for qa in all_qa)
+        avg_response_length = (total_output_length / len(all_qa)) if all_qa else 0.0
+        
+        # Topic coverage rate
+        all_tags = set()
+        for qa in all_qa:
+            topic = qa.get("topic", "")
+            if topic:
+                all_tags.add(topic)
+            qual_tags = qa.get("qualification", {}).get("tags", [])
+            all_tags.update(qual_tags)
+        
+        # Extract unique topic keywords from TOPICS
+        defined_topics = set()
+        for topic_tags in TOPICS.values():
+            defined_topics.update(tag.strip() for tag in topic_tags.split(","))
+        
+        topic_coverage_rate = (len(all_tags & defined_topics) / len(defined_topics) * 100) if defined_topics else 0.0
+        
+        # Tag distribution
+        tag_counts = {}
+        for qa in all_qa:
+            qual_tags = qa.get("qualification", {}).get("tags", [])
+            for tag in qual_tags:
+                tag_counts[tag] = tag_counts.get(tag, 0) + 1
+        
+        # Response length distribution
+        length_brackets = {"short (<50 tokens)": 0, "medium (50-200 tokens)": 0, "long (>200 tokens)": 0}
+        for qa in all_qa:
+            output_len = len(qa.get("output", "").split())
+            if output_len < 50:
+                length_brackets["short (<50 tokens)"] += 1
+            elif output_len <= 200:
+                length_brackets["medium (50-200 tokens)"] += 1
+            else:
+                length_brackets["long (>200 tokens)"] += 1
+        
+        # Unique Q&A ratio (based on instruction)
+        unique_instructions = len(set(qa.get("instruction", "") for qa in all_qa))
+        uniqueness_rate = (unique_instructions / len(all_qa) * 100) if all_qa else 0.0
         
         meta = {
             "total_docs": len(sections_by_doc),
             "total_qa_pairs": len(all_qa),
+            "total_weight": total_weight,
             "few_shot_count": len(examples[:14]),
             "pipeline_steps": PIPELINE_STEPS,
             "detected_version": detected_version,
@@ -193,8 +243,23 @@ def main():
                 "enabled": use_llm,
                 "api_url": llm_config.get("api_url"),
                 "model": llm_config.get("model")
+            },
+            "kpis": {
+                "valid_code_rate": round(valid_code_rate, 2),
+                "target_valid_code_rate": "> 98%",
+                "avg_response_length_tokens": round(avg_response_length, 2),
+                "target_avg_length": "50-200 tokens",
+                "topic_coverage_rate": round(topic_coverage_rate, 2),
+                "target_topic_coverage": "> 95%",
+                "uniqueness_rate": round(uniqueness_rate, 2),
+                "target_uniqueness": "> 95%",
+                "length_distribution": length_brackets
             }
         }
+        
+        # Add tag distribution to KPIs
+        if tag_counts:
+            meta["kpis"]["tag_distribution"] = {k: v for k, v in sorted(tag_counts.items(), key=lambda x: x[1], reverse=True)}
         
         # Add qualification stats if LLM was used
         if use_llm:
@@ -204,9 +269,21 @@ def main():
             # Count by level
             level_counts = {}
             for qa in all_qa:
-                level = qa.get("qualification", {}).get("level", "inconnu")
+                level = qa.get("niveau", qa.get("level", "inconnu"))
                 level_counts[level] = level_counts.get(level, 0) + 1
             meta["level_distribution"] = level_counts
+            
+            # Weight distribution
+            weight_distribution = {}
+            for qa in all_qa:
+                weight = qa.get("weight", 1.0)
+                weight_key = f"{weight:.1f}"
+                weight_distribution[weight_key] = weight_distribution.get(weight_key, 0) + 1
+            meta["weight_distribution"] = weight_distribution
+            
+            # Add level-based KPIs
+            if level_counts:
+                meta["kpis"]["level_distribution"] = level_counts
         
         (OUTPUT_DIR / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
         print(json.dumps(meta, indent=2))

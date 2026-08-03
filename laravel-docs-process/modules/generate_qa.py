@@ -1,5 +1,7 @@
 """Generate Q&A items from sections module."""
 
+import sys
+
 
 def _make_qa(doc_name: str, section: dict) -> dict:
     """Generate a Q&A item from a documentation section."""
@@ -37,9 +39,13 @@ def generate_qa(data: dict, **kwargs) -> dict:
             data["sections"] - list of section dicts
     Output: data["qa_items"] - list of Q&A dicts
     """
-    doc_name = data["doc_name"]
+    doc_name = data.get("doc_name", "unknown")
+    print(f"  [{doc_name}] Running: generate_qa", file=sys.stderr)
+    
     qa_items = []
     for sec in data.get("sections", [])[:6]:
         qa_items.append(_make_qa(doc_name, sec))
     data["qa_items"] = qa_items
+    
+    print(f"  [{doc_name}] Finished: generate_qa (generated {len(qa_items)} Q&A items)", file=sys.stderr)
     return data

@@ -2,6 +2,7 @@
 
 import re
 from typing import Optional
+import sys
 
 # Patterns to match Laravel version in markdown content
 VERSION_PATTERNS = [
@@ -10,6 +11,10 @@ VERSION_PATTERNS = [
     r"v(\d+\.x)",                    # "v10.x"
     r"version\s+(\d+\.x)",           # "version 10.x"
     r"(\d+\.x)\s+documentation",     # "10.x documentation"
+    r"(\d+\.x)\s+branch",            # "10.x branch"
+    r"release\s+(\d+\.x)",          # "release 10.x"
+    r"stable\s+release.*?(\d+\.x)",  # "current stable release 10.x"
+    r"for\s+Laravel\s+(\d+\.x)",     # "for Laravel 10.x"
 ]
 
 
@@ -31,7 +36,13 @@ def detect_version(data: dict, **kwargs) -> dict:
     Input:  data["content"] - markdown content
     Output: data["version"] - detected version string or None
     """
+    doc_name = data.get("doc_name", "unknown")
+    print(f"  [{doc_name}] Running: detect_version", file=sys.stderr)
+    
     content = data.get("content", "")
     version = _extract_version_from_text(content)
     data["version"] = version
+    
+    version_info = f"version={version}" if version else "version=None"
+    print(f"  [{doc_name}] Finished: detect_version ({version_info})", file=sys.stderr)
     return data

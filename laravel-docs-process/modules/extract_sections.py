@@ -40,6 +40,11 @@ def extract_sections(data: dict, **kwargs) -> dict:
     Input:  data["content"] - markdown content
     Output: data["sections"] - list of section dicts
     """
+    doc_name = data.get("doc_name", "unknown")
+    print(f"  [{doc_name}] Running: extract_sections", file=sys.stderr)
+    
     sections = _extract_sections_from_content(data.get("content", ""))
     data["sections"] = sections
+    
+    print(f"  [{doc_name}] Finished: extract_sections (found {len(sections)} sections)", file=sys.stderr)
     return data

@@ -1,6 +1,7 @@
 """Clean markdown content module."""
 
 import re
+import sys
 
 
 def strip_markdown(text: str) -> str:
@@ -19,5 +20,10 @@ def clean_content(data: dict, **kwargs) -> dict:
     Input:  data["content"] - raw markdown content
     Output: data["cleaned_content"] - cleaned text
     """
+    doc_name = data.get("doc_name", "unknown")
+    print(f"  [{doc_name}] Running: clean_content", file=sys.stderr)
+    
     data["cleaned_content"] = strip_markdown(data.get("content", ""))
+    
+    print(f"  [{doc_name}] Finished: clean_content", file=sys.stderr)
     return data

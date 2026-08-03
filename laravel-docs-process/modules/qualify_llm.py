@@ -5,6 +5,7 @@ Qualifies and enriches Q&A pairs using a Large Language Model API:
 - Adds technical tags
 - Adds difficulty level
 - Validates code presence
+- Adds weight based on level for fine-tuning
 """
 
 import json
@@ -24,6 +25,13 @@ DEFAULT_CONFIG = {
     "model": "qwen3.5:4b-mlx",
     "timeout": 120,
     "batch_size": 10
+}
+
+# Weight mapping based on level for fine-tuning
+LEVEL_WEIGHTS = {
+    "débutant": 1.0,
+    "intermédiaire": 1.5,
+    "avancé": 2.0
 }
 
 # Prompt template for LLM qualification
@@ -116,15 +124,22 @@ class LLMQualifier:
             "has_code": False
         }
     
-    def qualify(self, qa: dict) -> dict:
+    def qualify(self, qa: dict, index: int = None, total: int = None) -> dict:
         """Qualify a single Q&A pair using LLM.
         
         Args:
             qa: Q&A pair dict with 'instruction' and 'output' keys
+            index: Current index in batch (for progress logging)
+            total: Total number of Q&A pairs (for progress logging)
             
         Returns:
-            Enriched Q&A pair with qualification metadata
+            Enriched Q&A pair with qualification metadata and weight
         """
+        # Log progress
+        if index is not None and total is not None:
+            instruction_preview = qa.get("instruction", "")[:60].replace("\n", " ")
+            print(f"  [{index+1}/{total}] Qualifying: {instruction_preview}...", file=sys.stderr)
+        
         prompt = QUALIFICATION_PROMPT.format(
             instruction=qa.get("instruction", ""),
             output=qa.get("output", "")
@@ -133,13 +148,26 @@ class LLMQualifier:
         response = self._call_llm(prompt)
         qualification = self._extract_json(response)
         
-        # Add qualification metadata to Q&A
+        # Get level and compute weight
+        level = qualification.get("level", "intermédiaire")
+        weight = LEVEL_WEIGHTS.get(level, 1.0)
+        
+        # Log qualification result
+        if index is not None and total is not None:
+            useful = "✓" if qualification.get("useful", True) else "✗"
+            has_code = "✓" if qualification.get("has_code", False) else "✗"
+            print(f"  [{index+1}/{total}] Result: level={level}, weight={weight}, useful={useful}, has_code={has_code}", file=sys.stderr)
+        
+        # Add qualification metadata and weight to Q&A
         return {
             **qa,
+            "niveau": level,
+            "level": level,
+            "weight": weight,
             "qualification": {
                 "useful": qualification.get("useful", True),
                 "tags": qualification.get("tags", []),
-                "level": qualification.get("level", "intermédiaire"),
+                "level": level,
                 "has_code": qualification.get("has_code", False)
             }
         }
@@ -155,17 +183,23 @@ class LLMQualifier:
             List of qualified Q&A pairs
         """
         qualified = []
+        total = len(qa_list)
+        
+        print(f"Starting LLM qualification for {total} Q&A pairs...", file=sys.stderr)
+        
         for i in range(0, len(qa_list), batch_size):
             batch = qa_list[i:i + batch_size]
-            for qa in batch:
+            for j, qa in enumerate(batch):
                 try:
-                    qualified.append(self.qualify(qa))
+                    qualified.append(self.qualify(qa, index=i+j, total=total))
                     # Rate limiting: sleep between requests
                     time.sleep(0.1)  # 100ms delay to avoid overwhelming the API
                 except Exception as e:
-                    print(f"Warning: Failed to qualify Q&A: {e}", file=sys.stderr)
+                    print(f"  Warning: Failed to qualify Q&A: {e}", file=sys.stderr)
                     # Keep the original Q&A without qualification
                     qualified.append(qa)
+        
+        print(f"Finished LLM qualification: {len(qualified)}/{total} Q&A pairs qualified", file=sys.stderr)
         return qualified
 
 
