@@ -11,6 +11,7 @@ Qualifies and enriches Q&A pairs using a Large Language Model API:
 import json
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -94,7 +95,13 @@ class LLMQualifier:
     def _check_api_available(self) -> None:
         """Check if the API is available."""
         try:
-            response = self._session.get(f"{self.api_url}/api/tags")
+            # Check based on API type
+            if "mistral.ai" in self.api_url:
+                # Mistral API: check models endpoint
+                response = self._session.get(f"{self.api_url}/models", headers=self._headers)
+            else:
+                # Ollama API: check tags endpoint
+                response = self._session.get(f"{self.api_url}/api/tags")
             response.raise_for_status()
         except requests.RequestException as e:
             raise RuntimeError(f"LLM API not available at {self.api_url}: {e}")
@@ -206,12 +213,14 @@ class LLMQualifier:
             }
         }
     
-    def qualify_batch(self, qa_list: list[dict], batch_size: int = 10) -> list[dict]:
-        """Qualify a batch of Q&A pairs.
+    def qualify_batch(self, qa_list: list[dict], batch_size: int = 10, max_workers: int = 4, rate_limit_delay: float = 0.5) -> list[dict]:
+        """Qualify a batch of Q&A pairs with parallel processing.
         
         Args:
             qa_list: List of Q&A pairs to qualify
-            batch_size: Number of pairs to process at once
+            batch_size: Number of pairs per API batch (not used yet - future optimization)
+            max_workers: Number of parallel workers
+            rate_limit_delay: Delay between API calls in seconds (for rate limiting)
             
         Returns:
             List of qualified Q&A pairs
@@ -219,19 +228,43 @@ class LLMQualifier:
         qualified = []
         total = len(qa_list)
         
-        print(f"Starting LLM qualification for {total} Q&A pairs...", file=sys.stderr)
+        print(f"Starting LLM qualification for {total} Q&A pairs with {max_workers} workers...", file=sys.stderr)
+        print(f"Rate limit delay: {rate_limit_delay}s between requests", file=sys.stderr)
         
-        for i in range(0, len(qa_list), batch_size):
-            batch = qa_list[i:i + batch_size]
-            for j, qa in enumerate(batch):
+        # Use ThreadPoolExecutor for parallel qualification
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all tasks
+            future_to_index = {}
+            for idx, qa in enumerate(qa_list):
+                future = executor.submit(self.qualify, qa, idx, total)
+                future_to_index[future] = idx
+            
+            # Process completed futures
+            completed = 0
+            last_completion_time = time.time()
+            
+            for future in as_completed(future_to_index):
+                idx = future_to_index[future]
+                completed += 1
+                
+                # Rate limiting: ensure minimum delay between completions
+                current_time = time.time()
+                elapsed = current_time - last_completion_time
+                if elapsed < rate_limit_delay:
+                    time.sleep(rate_limit_delay - elapsed)
+                last_completion_time = time.time()
+                
                 try:
-                    qualified.append(self.qualify(qa, index=i+j, total=total))
-                    # Rate limiting: sleep between requests
-                    time.sleep(0.1)  # 100ms delay to avoid overwhelming the API
+                    result = future.result()
+                    qualified.append(result)
                 except Exception as e:
-                    print(f"  Warning: Failed to qualify Q&A: {e}", file=sys.stderr)
+                    print(f"  Warning: Failed to qualify Q&A at index {idx}: {e}", file=sys.stderr)
                     # Keep the original Q&A without qualification
-                    qualified.append(qa)
+                    qualified.append(qa_list[idx])
+                
+                # Print progress every 10 items
+                if completed % 10 == 0 or completed == total:
+                    print(f"  [{completed}/{total}] Qualified Q&A pairs...", file=sys.stderr)
         
         print(f"Finished LLM qualification: {len(qualified)}/{total} Q&A pairs qualified", file=sys.stderr)
         return qualified
@@ -278,20 +311,33 @@ def qualify_with_llm(all_qa: list[dict], llm_config: LLMConfig) -> list[dict]:
             api_key=llm_config.api_key,
             timeout=llm_config.timeout
         )
-        qualified = []
         
         print("Qualifying Q&A pairs with LLM API...", file=sys.stderr)
         
-        for qa in all_qa:
-            try:
-                qualified_qa = qualifier.qualify(qa)
-                # Only keep useful Q&A pairs
-                if qualified_qa.get("qualification", {}).get("useful", True):
-                    qualified.append(qualified_qa)
-            except Exception as e:
-                print(f"Warning: Failed to qualify Q&A: {e}", file=sys.stderr)
-                # Keep the original Q&A without qualification
-                qualified.append(qa)
+        # Use batch processing with parallel workers and rate limiting
+        # For Mistral API: rate limit is ~32 RPM for free tier, ~100+ RPM for paid
+        # With 4 workers and 0.5s delay, we get ~8 RPM per worker = 32 RPM total
+        rate_limit_delay = 0.5  # Adjust based on your API tier
+        if "mistral.ai" in llm_config.api_url:
+            # Mistral free tier: ~32 RPM, so 2s per request with 1 worker
+            # With 4 workers: 0.5s delay gives us ~32 RPM
+            rate_limit_delay = 0.5
+        else:
+            # Ollama local: can handle more, use smaller delay
+            rate_limit_delay = 0.1
+        
+        qualified = qualifier.qualify_batch(
+            all_qa,
+            batch_size=llm_config.batch_size,
+            max_workers=4,
+            rate_limit_delay=rate_limit_delay
+        )
+        
+        # Filter to keep only useful Q&A pairs
+        qualified = [
+            qa for qa in qualified 
+            if qa.get("qualification", {}).get("useful", True)
+        ]
         
         print(f"Qualified {len(qualified)}/{len(all_qa)} Q&A pairs", file=sys.stderr)
         return qualified
