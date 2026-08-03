@@ -33,7 +33,16 @@ def process_file(md_file: Path) -> dict:
     Returns:
         dict containing all processing results
     """
-    content = md_file.read_text(encoding="utf-8", errors="ignore")
+    try:
+        content = md_file.read_text(encoding="utf-8", errors="ignore")
+    except (IOError, UnicodeDecodeError, PermissionError) as e:
+        # Return empty result with error info for corrupted files
+        return {
+            "doc_name": md_file.name,
+            "error": str(e),
+            "qa_items": [],
+            "sections": []
+        }
     
     data = {
         "doc_name": md_file.name,
@@ -42,7 +51,14 @@ def process_file(md_file: Path) -> dict:
     
     # Execute each step in order
     for step_name in PIPELINE_STEPS:
-        data = run_module_step(step_name, data)
+        try:
+            data = run_module_step(step_name, data)
+        except Exception as e:
+            # If a pipeline step fails, store error and return partial result
+            data["error"] = f"Pipeline step '{step_name}' failed: {e}"
+            data["qa_items"] = data.get("qa_items", [])
+            data["sections"] = data.get("sections", [])
+            break
     
     return data
 
@@ -66,8 +82,12 @@ def run_pipeline(docs_root: Path, skip_files: set[str], max_workers: int = 4) ->
         if f.name not in skip_files
     ]
     
+    if not md_files:
+        return [], {}
+    
     all_qa = []
     sections_by_doc = {}
+    errors = []
     
     # Process files in parallel
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -80,10 +100,21 @@ def run_pipeline(docs_root: Path, skip_files: set[str], max_workers: int = 4) ->
             md_file = future_to_file[future]
             try:
                 result = future.result()
+                
+                # Check for errors in result
+                if result.get("error"):
+                    errors.append(f"{md_file}: {result['error']}")
+                    continue
+                
                 all_qa.extend(result.get("qa_items", []))
                 if result.get("sections"):
                     sections_by_doc[result["doc_name"]] = result["sections"]
             except Exception as e:
-                print(f"Error processing {md_file}: {e}")
+                errors.append(f"{md_file}: {e}")
+    
+    # Print errors if any occurred
+    if errors:
+        for error in errors:
+            print(f"Warning: {error}", file=sys.stderr)
     
     return all_qa, sections_by_doc
