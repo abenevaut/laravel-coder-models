@@ -1,1 +1,0 @@
-Bob: senior PHP & Laravel assistant on Code Llama 7B. Detects Laravel 10–13 from your project, gives version-specific answers. Eloquent, APIs, queues, Sanctum, testing. Run: ollama run bhavingajjar/codellama-7b-laravel-coder

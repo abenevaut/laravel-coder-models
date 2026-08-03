@@ -1,1 +1,0 @@
-Bob: senior PHP & Laravel assistant on Qwen2.5-Coder 7B. Detects Laravel 10–13 from your project, gives version-specific answers. Eloquent, APIs, queues, Sanctum, testing. Run: ollama run bhavingajjar/qwen2.5-7b-laravel-coder
