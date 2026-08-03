@@ -47,7 +47,12 @@ PRIORITY_TOPICS = metadata["PRIORITY_TOPICS"]
 
 def main():
     # Run the processing pipeline
-    all_qa, sections_by_doc = run_pipeline(DOCS_ROOT, SKIP_FILES)
+    all_qa, sections_by_doc, detected_version = run_pipeline(DOCS_ROOT, SKIP_FILES)
+
+    # Add version tag to all Q&A items if detected
+    if detected_version:
+        for qa in all_qa:
+            qa["version"] = detected_version
 
     # Write output files
     try:
@@ -77,6 +82,7 @@ def main():
             "total_qa_pairs": len(all_qa),
             "few_shot_count": len(examples[:14]),
             "pipeline_steps": PIPELINE_STEPS,
+            "detected_version": detected_version,
         }
         (OUTPUT_DIR / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
         print(json.dumps(meta, indent=2))
