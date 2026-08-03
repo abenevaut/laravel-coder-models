@@ -2,9 +2,16 @@
 """Process Laravel docs into training data."""
 
 import json
-import os
 import sys
 from pathlib import Path
+
+# Add modules directory to path
+MODULES_DIR = Path(__file__).parent / "modules"
+sys.path.insert(0, str(MODULES_DIR))
+
+from modules.pipeline import run_pipeline
+from modules.generate_qa import build_knowledge_digest
+from modules.qualify_llm import LLMConfig, load_llm_config, qualify_with_llm
 
 
 def load_env_file(env_path: Path) -> dict:
@@ -21,141 +28,95 @@ def load_env_file(env_path: Path) -> dict:
     return env_vars
 
 
-# Add the current directory to path for local imports
-sys.path.insert(0, str(Path(__file__).parent))
-
-from config import PIPELINE_STEPS
-from modules.pipeline import run_pipeline
-from modules.generate_qa import build_knowledge_digest
-
-ROOT = Path(__file__).resolve().parent.parent
-DOCS_ROOT = ROOT / "laravel-docs"
-OUTPUT_DIR = ROOT / "laravel-docs-data"
-
-# Validate paths
-if not DOCS_ROOT.exists():
-    raise SystemExit(f"Laravel docs directory not found: {DOCS_ROOT}")
-
-if not DOCS_ROOT.is_dir():
-    raise SystemExit(f"Path is not a directory: {DOCS_ROOT}")
-
-# Check if there are any markdown files
-md_files = list(DOCS_ROOT.glob("*.md"))
-if not md_files:
-    raise SystemExit(f"No markdown files found in: {DOCS_ROOT}")
-
-# Create output directory
-OUTPUT_DIR.mkdir(exist_ok=True)
-
-# Load metadata from JSON file
-try:
-    with open(Path(__file__).parent / "metadata.json", "r") as f:
-        metadata = json.load(f)
-except FileNotFoundError:
-    raise SystemExit(f"Metadata file not found: {Path(__file__).parent / 'metadata.json'}")
-except json.JSONDecodeError as e:
-    raise SystemExit(f"Invalid JSON in metadata file: {e}")
-
-TOPICS = metadata["TOPICS"]
-SKIP_FILES = set(metadata["SKIP_FILES"])
-PRIORITY_TOPICS = metadata["PRIORITY_TOPICS"]
-
-# Load LLM configuration from .env file
-llm_config = {
-    "enabled": False,
-    "api_url": "http://localhost:11434",
-    "model": "qwen3.5:4b-mlx",
-    "timeout": 120,
-    "batch_size": 10
-}
-
-env_path = ROOT / ".env"
-env_vars = load_env_file(env_path)
-
-# Override defaults with .env values
-if "LLM_ENABLED" in env_vars:
-    llm_config["enabled"] = env_vars["LLM_ENABLED"].lower() in ("true", "1", "yes")
-if "LLM_API_URL" in env_vars:
-    llm_config["api_url"] = env_vars["LLM_API_URL"]
-if "LLM_MODEL" in env_vars:
-    llm_config["model"] = env_vars["LLM_MODEL"]
-if "LLM_TIMEOUT" in env_vars:
-    try:
-        llm_config["timeout"] = int(env_vars["LLM_TIMEOUT"])
-    except ValueError:
-        pass
-if "LLM_BATCH_SIZE" in env_vars:
-    try:
-        llm_config["batch_size"] = int(env_vars["LLM_BATCH_SIZE"])
-    except ValueError:
-        pass
-
-# CLI argument overrides .env
-if "--llm" in sys.argv or "-l" in sys.argv:
-    llm_config["enabled"] = True
-
-
-def qualify_with_llm(all_qa: list[dict]) -> list[dict]:
-    """Qualify Q&A pairs using LLM API (optional, requires requests).
-    
-    Adds qualification metadata:
-    - useful: bool (is the Q&A useful for Laravel experts)
-    - tags: list of 3 technical tags
-    - niveau/level: "débutant"|"intermédiaire"|"avancé"
-    - has_code: bool (contains valid PHP code)
-    - weight: float (for weighted loss fine-tuning)
-    
-    Args:
-        all_qa: List of Q&A pairs
-        
-    Returns:
-        List of qualified Q&A pairs (filtered to useful ones only)
-    """
-    try:
-        from modules.qualify_llm import LLMQualifier
-        
-        api_url = llm_config.get("api_url", "http://localhost:11434")
-        model = llm_config.get("model", "qwen3.5:4b-mlx")
-        timeout = llm_config.get("timeout", 120)
-        batch_size = llm_config.get("batch_size", 10)
-        
-        qualifier = LLMQualifier(api_url=api_url, model=model, timeout=timeout)
-        qualified = []
-        
-        print("Qualifying Q&A pairs with LLM API...", file=sys.stderr)
-        
-        for qa in all_qa:
-            try:
-                qualified_qa = qualifier.qualify(qa)
-                # Only keep useful Q&A pairs
-                if qualified_qa.get("qualification", {}).get("useful", True):
-                    qualified.append(qualified_qa)
-            except Exception as e:
-                print(f"Warning: Failed to qualify Q&A: {e}", file=sys.stderr)
-                # Keep the original Q&A without qualification
-                qualified.append(qa)
-        
-        print(f"Qualified {len(qualified)}/{len(all_qa)} Q&A pairs", file=sys.stderr)
-        return qualified
-        
-    except (ImportError, RuntimeError) as e:
-        print(f"Warning: LLM qualification disabled: {e}", file=sys.stderr)
-        return all_qa
-
-
 def main():
+    ROOT = Path(__file__).resolve().parent.parent
+    DOCS_ROOT = ROOT / "laravel-docs"
+    OUTPUT_DIR = ROOT / "laravel-docs-data"
+
+    # Validate paths
+    if not DOCS_ROOT.exists():
+        raise SystemExit(f"Laravel docs directory not found: {DOCS_ROOT}")
+
+    if not DOCS_ROOT.is_dir():
+        raise SystemExit(f"Path is not a directory: {DOCS_ROOT}")
+
+    # Check if there are any markdown files
+    md_files = list(DOCS_ROOT.glob("*.md"))
+    if not md_files:
+        raise SystemExit(f"No markdown files found in: {DOCS_ROOT}")
+
+    # Create output directory
+    OUTPUT_DIR.mkdir(exist_ok=True)
+
+    # Load metadata from JSON file
+    try:
+        with open(Path(__file__).parent / "metadata.json", "r") as f:
+            metadata = json.load(f)
+    except FileNotFoundError:
+        raise SystemExit(f"Metadata file not found: {Path(__file__).parent / 'metadata.json'}")
+    except json.JSONDecodeError as e:
+        raise SystemExit(f"Invalid JSON in metadata file: {e}")
+
+    TOPICS = metadata["TOPICS"]
+    SKIP_FILES = set(metadata["SKIP_FILES"])
+    PRIORITY_TOPICS = metadata["PRIORITY_TOPICS"]
+
+    # Load LLM configuration
+    env_path = ROOT / ".env"
+    env_vars = load_env_file(env_path)
+    llm_config = load_llm_config(env_vars, sys.argv)
+
     # Run the processing pipeline
     all_qa, sections_by_doc, detected_version = run_pipeline(DOCS_ROOT, SKIP_FILES)
 
-    # Optionally qualify with LLM if enabled in .env or CLI
-    use_llm = llm_config.get("enabled", False)
-    if use_llm:
-        all_qa = qualify_with_llm(all_qa)
+    # Optionally qualify with LLM if enabled
+    if llm_config.enabled:
+        all_qa = qualify_with_llm(all_qa, llm_config)
 
     # Add version tag to all Q&A items if detected
     if detected_version:
         for qa in all_qa:
             qa["version"] = detected_version
+
+    # Ensure all Q&A items have qualification metadata for future manipulation
+    # This allows splitting by score, filtering by usefulness, etc.
+    for qa in all_qa:
+        # Add qualification metadata if not present (LLM was disabled)
+        if "qualification" not in qa:
+            qa["qualification"] = {
+                "useful": True,
+                "tags": [],
+                "level": "intermédiaire",
+                "has_code": False
+            }
+        
+        # Add niveau/level if not present
+        if "niveau" not in qa:
+            qa["niveau"] = qa["qualification"].get("level", "intermédiaire")
+        if "level" not in qa:
+            qa["level"] = qa["qualification"].get("level", "intermédiaire")
+        
+        # Add weight if not present (default based on level)
+        if "weight" not in qa:
+            level = qa.get("level", "intermédiaire")
+            level_weights = {"débutant": 1.0, "intermédiaire": 1.5, "avancé": 2.0}
+            qa["weight"] = level_weights.get(level, 1.0)
+        
+        # Calculate a composite score for filtering/sorting
+        # Score formula: weight * (1 + has_code_bonus + useful_bonus)
+        qual = qa.get("qualification", {})
+        has_code = qual.get("has_code", False)
+        useful = qual.get("useful", True)
+        weight = qa.get("weight", 1.0)
+        
+        # Score calculation
+        score = weight
+        if has_code:
+            score *= 1.3  # 30% bonus for code
+        if useful:
+            score *= 1.1  # 10% bonus for being useful
+        
+        qa["score"] = round(score, 4)
 
     # Write output files
     try:
@@ -167,6 +128,7 @@ def main():
         digest = build_knowledge_digest(sections_by_doc)
         (OUTPUT_DIR / "laravel_knowledge.md").write_text(digest, encoding="utf-8")
 
+        # Generate few-shot examples
         examples = []
         seen: set[str] = set()
         for topic in PRIORITY_TOPICS:
@@ -186,11 +148,10 @@ def main():
         total_weight = sum(qa.get("weight", 1.0) for qa in all_qa)
         
         # Calculate KPIs for training data quality
-        # Valid code rate (from qualification or has_code in output)
         total_with_code = has_code_count
         valid_code_rate = (total_with_code / len(all_qa) * 100) if all_qa else 0.0
         
-        # Average response length (output tokens approximation)
+        # Average response length
         total_output_length = sum(len(qa.get("output", "").split()) for qa in all_qa)
         avg_response_length = (total_output_length / len(all_qa)) if all_qa else 0.0
         
@@ -228,7 +189,7 @@ def main():
             else:
                 length_brackets["long (>200 tokens)"] += 1
         
-        # Unique Q&A ratio (based on instruction)
+        # Unique Q&A ratio
         unique_instructions = len(set(qa.get("instruction", "") for qa in all_qa))
         uniqueness_rate = (unique_instructions / len(all_qa) * 100) if all_qa else 0.0
         
@@ -237,12 +198,11 @@ def main():
             "total_qa_pairs": len(all_qa),
             "total_weight": total_weight,
             "few_shot_count": len(examples[:14]),
-            "pipeline_steps": PIPELINE_STEPS,
             "detected_version": detected_version,
             "llm_config": {
-                "enabled": use_llm,
-                "api_url": llm_config.get("api_url"),
-                "model": llm_config.get("model")
+                "enabled": llm_config.enabled,
+                "api_url": llm_config.api_url,
+                "model": llm_config.model
             },
             "kpis": {
                 "valid_code_rate": round(valid_code_rate, 2),
@@ -262,7 +222,7 @@ def main():
             meta["kpis"]["tag_distribution"] = {k: v for k, v in sorted(tag_counts.items(), key=lambda x: x[1], reverse=True)}
         
         # Add qualification stats if LLM was used
-        if use_llm:
+        if llm_config.enabled:
             meta["useful_qa_count"] = useful_count
             meta["has_code_count"] = has_code_count
             

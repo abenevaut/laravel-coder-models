@@ -11,6 +11,7 @@ Qualifies and enriches Q&A pairs using a Large Language Model API:
 import json
 import sys
 import time
+from dataclasses import dataclass, field
 from typing import Any, Optional
 
 try:
@@ -19,13 +20,16 @@ except ImportError:
     requests = None
 
 
-# Default configuration
-DEFAULT_CONFIG = {
-    "api_url": "http://localhost:11434",
-    "model": "qwen3.5:4b-mlx",
-    "timeout": 120,
-    "batch_size": 10
-}
+@dataclass
+class LLMConfig:
+    """Configuration for LLM API."""
+    enabled: bool = False
+    api_url: str = "https://api.mistral.ai/v1"
+    model: str = "mistral-small"
+    api_key: Optional[str] = None
+    timeout: int = 120
+    batch_size: int = 10
+
 
 # Weight mapping based on level for fine-tuning
 LEVEL_WEIGHTS = {
@@ -55,16 +59,18 @@ Ne réponds que par le JSON, sans commentaire.
 class LLMQualifier:
     """Qualifies Q&A pairs using a LLM API."""
     
-    def __init__(self, api_url: str = None, model: str = None, timeout: int = 120):
+    def __init__(self, api_url: str = None, model: str = None, api_key: str = None, timeout: int = 120):
         """Initialize the qualifier.
         
         Args:
-            api_url: LLM API endpoint URL (default: http://localhost:11434)
-            model: LLM model name (default: qwen3.5:4b-mlx)
+            api_url: LLM API endpoint URL (default: https://api.mistral.ai/v1)
+            model: LLM model name (default: mistral-small)
+            api_key: API key for authentication
             timeout: Timeout in seconds for API requests
         """
-        self.api_url = api_url or DEFAULT_CONFIG["api_url"]
-        self.model = model or DEFAULT_CONFIG["model"]
+        self.api_url = api_url or "https://api.mistral.ai/v1"
+        self.model = model or "mistral-small"
+        self.api_key = api_key
         self.timeout = timeout
         self._session = None
         
@@ -78,6 +84,12 @@ class LLMQualifier:
         # Create a session with timeout
         self._session = requests.Session()
         self._session.timeout = timeout
+        self._headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+        if self.api_key:
+            self._headers["Authorization"] = f"Bearer {self.api_key}"
     
     def _check_api_available(self) -> None:
         """Check if the API is available."""
@@ -89,19 +101,41 @@ class LLMQualifier:
     
     def _call_llm(self, prompt: str) -> str:
         """Call the LLM API with a prompt and return the response."""
-        url = f"{self.api_url}/api/generate"
-        
-        payload = {
-            "model": self.model,
-            "prompt": prompt,
-            "stream": False
-        }
+        # Check if this is Mistral API or Ollama
+        if "mistral.ai" in self.api_url:
+            url = f"{self.api_url}/chat/completions"
+            payload = {
+                "model": self.model,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                "temperature": 0.7,
+                "max_tokens": 2000
+            }
+        else:
+            # Ollama API format
+            url = f"{self.api_url}/api/generate"
+            payload = {
+                "model": self.model,
+                "prompt": prompt,
+                "stream": False
+            }
         
         try:
-            response = self._session.post(url, json=payload)
+            response = self._session.post(url, json=payload, headers=self._headers)
             response.raise_for_status()
             result = response.json()
-            return result.get("response", "")
+            
+            # Handle different response formats
+            if "mistral.ai" in self.api_url:
+                # Mistral API format
+                return result.get("choices", [{}])[0].get("message", {}).get("content", "")
+            else:
+                # Ollama API format
+                return result.get("response", "")
         except requests.RequestException as e:
             raise RuntimeError(f"LLM API call failed: {e}")
     
@@ -215,3 +249,97 @@ def qualify_llm(data: dict, **kwargs) -> dict:
     # This step is a no-op in the per-file pipeline
     # LLM qualification should be done on the complete Q&A list in main.py
     return data
+
+
+def qualify_with_llm(all_qa: list[dict], llm_config: LLMConfig) -> list[dict]:
+    """Qualify Q&A pairs using LLM API.
+    
+    Adds qualification metadata:
+    - useful: bool (is the Q&A useful for Laravel experts)
+    - tags: list of 3 technical tags
+    - niveau/level: "débutant"|"intermédiaire"|"avancé"
+    - has_code: bool (contains valid PHP code)
+    - weight: float (for weighted loss fine-tuning)
+    
+    Args:
+        all_qa: List of Q&A pairs
+        llm_config: LLM configuration
+        
+    Returns:
+        List of qualified Q&A pairs (filtered to useful ones only)
+    """
+    if not llm_config.enabled:
+        return all_qa
+    
+    try:
+        qualifier = LLMQualifier(
+            api_url=llm_config.api_url,
+            model=llm_config.model,
+            api_key=llm_config.api_key,
+            timeout=llm_config.timeout
+        )
+        qualified = []
+        
+        print("Qualifying Q&A pairs with LLM API...", file=sys.stderr)
+        
+        for qa in all_qa:
+            try:
+                qualified_qa = qualifier.qualify(qa)
+                # Only keep useful Q&A pairs
+                if qualified_qa.get("qualification", {}).get("useful", True):
+                    qualified.append(qualified_qa)
+            except Exception as e:
+                print(f"Warning: Failed to qualify Q&A: {e}", file=sys.stderr)
+                # Keep the original Q&A without qualification
+                qualified.append(qa)
+        
+        print(f"Qualified {len(qualified)}/{len(all_qa)} Q&A pairs", file=sys.stderr)
+        return qualified
+        
+    except (ImportError, RuntimeError) as e:
+        print(f"Warning: LLM qualification disabled: {e}", file=sys.stderr)
+        return all_qa
+
+
+def load_llm_config(env_vars: dict, cli_args: list[str]) -> LLMConfig:
+    """Load LLM configuration from environment variables and CLI args.
+    
+    Args:
+        env_vars: Dictionary of environment variables
+        cli_args: List of CLI arguments
+        
+    Returns:
+        LLMConfig instance
+    """
+    config = LLMConfig()
+    
+    # Load from environment
+    if "LLM_ENABLED" in env_vars:
+        config.enabled = env_vars["LLM_ENABLED"].lower() in ("true", "1", "yes")
+    
+    if "LLM_API_URL" in env_vars:
+        config.api_url = env_vars["LLM_API_URL"]
+    
+    if "LLM_MODEL" in env_vars:
+        config.model = env_vars["LLM_MODEL"]
+    
+    if "LLM_API_KEY" in env_vars:
+        config.api_key = env_vars["LLM_API_KEY"]
+    
+    if "LLM_TIMEOUT" in env_vars:
+        try:
+            config.timeout = int(env_vars["LLM_TIMEOUT"])
+        except ValueError:
+            pass
+    
+    if "LLM_BATCH_SIZE" in env_vars:
+        try:
+            config.batch_size = int(env_vars["LLM_BATCH_SIZE"])
+        except ValueError:
+            pass
+    
+    # CLI override
+    if "--llm" in cli_args or "-l" in cli_args:
+        config.enabled = True
+    
+    return config

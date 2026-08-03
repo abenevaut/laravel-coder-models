@@ -1,21 +1,43 @@
 """Processing pipeline for Laravel docs."""
 
 import importlib
-import re
+import json
 import sys
-from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Optional
 
-# Add the parent directory to path for config import
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# Add modules directory to path
+MODULES_DIR = Path(__file__).parent
+sys.path.insert(0, str(MODULES_DIR))
 
-# Import pipeline configuration
-from config import PIPELINE_STEPS
+# Import version detection utilities
+from detect_version import detect_global_version
 
-# Add the current directory to path for module imports
-sys.path.insert(0, str(Path(__file__).parent))
+
+def load_pipeline_steps(modules_dir: Path) -> list[str]:
+    """Load pipeline steps from config.json."""
+    config_path = modules_dir.parent / "config.json"
+    try:
+        with open(config_path, "r") as f:
+            config = json.load(f)
+        return config.get("PIPELINE_STEPS", [
+            "clean_content",
+            "detect_version", 
+            "extract_sections",
+            "generate_qa"
+        ])
+    except (FileNotFoundError, json.JSONDecodeError):
+        return [
+            "clean_content",
+            "detect_version",
+            "extract_sections", 
+            "generate_qa"
+        ]
+
+
+# Load pipeline steps at module level
+PIPELINE_STEPS = load_pipeline_steps(MODULES_DIR)
 
 
 def run_module_step(step_name: str, data: dict, **kwargs: Any) -> dict:
@@ -24,100 +46,9 @@ def run_module_step(step_name: str, data: dict, **kwargs: Any) -> dict:
     The module must have a function with the same name as the module.
     Example: clean_content.py must have clean_content(data, **kwargs) -> dict
     """
-    module = importlib.import_module(f"{step_name}")
+    module = importlib.import_module(f".{step_name}", package="modules")
     step_fn = getattr(module, step_name)
     return step_fn(data, **kwargs)
-
-
-def _extract_version_from_text(text: str) -> Optional[str]:
-    """Extract Laravel version from text using patterns."""
-    # Extended patterns to match version in various formats
-    patterns = [
-        r"Laravel\s+(\d+\.x)",           # "Laravel 10.x"
-        r"Laravel\s+version\s+(\d+\.x)",  # "Laravel version 10.x"
-        r"v(\d+\.x)",                    # "v10.x"
-        r"version\s+(\d+\.x)",           # "version 10.x"
-        r"(\d+\.x)\s+documentation",     # "10.x documentation"
-        r"(\d+\.x)\s+branch",            # "10.x branch"
-        r"release\s+(\d+\.x)",          # "release 10.x"
-        r"stable\s+release.*?(\d+\.x)",  # "current stable release 10.x"
-        r"for\s+Laravel\s+(\d+\.x)",     # "for Laravel 10.x"
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
-            return match.group(1)
-    return None
-
-
-def _detect_version_from_git(docs_root: Path) -> Optional[str]:
-    """Try to detect version from git submodule."""
-    try:
-        git_file = docs_root / ".git"
-        if git_file.exists():
-            # Check if it's a git submodule (contains gitdir: path)
-            with open(git_file, "r") as f:
-                content = f.read().strip()
-            
-            # If it's a submodule, it contains "gitdir: path/to/real/git"
-            if content.startswith("gitdir: "):
-                # The real git directory is at the path specified
-                git_dir_path = (docs_root / content.split(": ", 1)[1].strip()).resolve()
-                head_path = git_dir_path / "HEAD"
-                if head_path.exists():
-                    with open(head_path, "r") as f:
-                        head_content = f.read().strip()
-                    if head_content.startswith("ref: refs/heads/"):
-                        branch = head_content.split("/")[-1]
-                        match = re.match(r"^(\d+\.x)$", branch)
-                        if match:
-                            return match.group(1)
-        
-        # Also try direct .git/HEAD if it's a regular repo
-        head_path = docs_root / ".git" / "HEAD"
-        if head_path.exists():
-            with open(head_path, "r") as f:
-                head_content = f.read().strip()
-            if head_content.startswith("ref: refs/heads/"):
-                branch = head_content.split("/")[-1]
-                match = re.match(r"^(\d+\.x)$", branch)
-                if match:
-                    return match.group(1)
-    except (IOError, OSError):
-        pass
-    return None
-
-
-def _detect_global_version(docs_root: Path, skip_files: set[str]) -> Optional[str]:
-    """Detect the global Laravel version from documentation.
-    
-    Tries git branch first, then falls back to content analysis.
-    """
-    # Try git branch first
-    git_version = _detect_version_from_git(docs_root)
-    if git_version:
-        return git_version
-    
-    # Fall back to content analysis
-    versions = []
-    
-    # Sample files to detect version
-    for md_file in sorted(docs_root.glob("*.md"))[:15]:
-        if md_file.name in skip_files:
-            continue
-        try:
-            content = md_file.read_text(encoding="utf-8", errors="ignore")
-            version = _extract_version_from_text(content)
-            if version:
-                versions.append(version)
-        except (IOError, UnicodeDecodeError):
-            continue
-    
-    # Return most common version, or first one found, or None
-    if versions:
-        counter = Counter(versions)
-        return counter.most_common(1)[0][0]
-    return None
 
 
 def process_file(md_file: Path, global_version: Optional[str] = None) -> dict:
@@ -187,7 +118,7 @@ def run_pipeline(docs_root: Path, skip_files: set[str], max_workers: int = 4) ->
         return [], {}, None
     
     # Detect global version from documentation
-    global_version = _detect_global_version(docs_root, skip_files)
+    global_version = detect_global_version(docs_root, skip_files)
     version_info = f"Detected version: {global_version}" if global_version else "No version detected"
     print(f"{version_info}", file=sys.stderr)
     
