@@ -11,37 +11,37 @@ pip install -r requirements.txt
 ### Benchmark de base
 ```bash
 # Exécuter le benchmark complet
-python benchmark/main.py
+python3 benchmark/main.py
 
 # Évaluer seulement les 100 premières paires (plus rapide)
-python benchmark/main.py --limit 100
+python3 benchmark/main.py --limit 100
 
 # Spécifier un nom de modèle
-python benchmark/main.py --model "mistral-small"
+python3 benchmark/main.py --model "mistral-small"
 ```
 
 ### Benchmark de comparaison
 ```bash
 # Benchmarker Mistral API
-python benchmark/main.py --model "mistral-small" --output benchmark/results/mistral
+python3 benchmark/main.py --model "mistral-small" --output benchmark/results/mistral
 
 # Benchmarker Ollama local
-python benchmark/main.py --model "ollama-mistral:7b" --output benchmark/results/ollama
+python3 benchmark/main.py --model "ollama-mistral:7b" --output benchmark/results/ollama
 
 # Comparer avec les résultats précédents
-python benchmark/main.py --model "comparaison" --compare
+python3 benchmark/main.py --model "comparaison" --compare
 ```
 
 ### Options de sortie
 ```bash
 # Générer seulement le rapport JSON
-python benchmark/main.py --json
+python3 benchmark/main.py --json
 
 # Générer seulement le rapport HTML
-python benchmark/main.py --html
+python3 benchmark/main.py --html
 
 # Mode silencieux (pas d'affichage console)
-python benchmark/main.py --quiet
+python3 benchmark/main.py --quiet
 ```
 
 ## 📁 Sortie

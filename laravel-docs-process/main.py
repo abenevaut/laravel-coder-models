@@ -90,6 +90,14 @@ def main():
                 "has_code": False
             }
         
+        # Sync has_code from top-level to qualification if present
+        if "has_code" in qa:
+            qa["qualification"]["has_code"] = qa["has_code"]
+        
+        # Add subtopics as tags to qualification for topic coverage calculation
+        if "subtopics" in qa:
+            qa["qualification"]["tags"] = qa["subtopics"]
+        
         # Add niveau/level if not present
         if "niveau" not in qa:
             qa["niveau"] = qa["qualification"].get("level", "intermédiaire")

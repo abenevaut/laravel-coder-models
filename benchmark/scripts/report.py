@@ -34,6 +34,7 @@ def generate_html_report(results: list[dict], output_path: Optional[str] = None)
     # Sort by timestamp (newest first)
     results = sorted(results, key=lambda x: x.get("timestamp", ""), reverse=True)
     latest = results[0]
+    kpis = latest.get('kpis', {})
     
     output_dir = Path(output_path) if output_path else Path(__file__).parent.parent / "reports"
     output_dir.mkdir(exist_ok=True, parents=True)
@@ -42,306 +43,555 @@ def generate_html_report(results: list[dict], output_path: Optional[str] = None)
     filename = f"report_{timestamp}.html"
     filepath = output_dir / filename
     
+    # Metric descriptions
+    metric_descriptions = {
+        'code_valid_rate': {
+            'title': 'Taux de code valide',
+            'description': 'Pourcentage de paires Q/R contenant du code PHP valide. Un taux élevé indique que le jeu de données est riche en exemples de code, essentiel pour l\'entraînement d\'un modèle spécialisé en développement Laravel.',
+            'unit': '%',
+            'target': '> 98%',
+            'target_min': 98
+        },
+        'topic_coverage_rate': {
+            'title': 'Couverture des topics',
+            'description': 'Pourcentage des sujets Laravel définis dans la métadonnée qui sont couverts par les paires Q/R. Une couverture élevée garantit que le modèle sera formé sur tous les aspects du framework.',
+            'unit': '%',
+            'target': '> 95%',
+            'target_min': 95
+        },
+        'avg_response_length': {
+            'title': 'Longueur moyenne des réponses',
+            'description': 'Nombre moyen de tokens par réponse. Des réponses trop courtes peuvent manquer de contexte, tandis que des réponses trop longues peuvent contenir du bruit.',
+            'unit': 'tokens',
+            'target': '50-200',
+            'target_min': 50,
+            'target_max': 200
+        },
+        'uniqueness_rate': {
+            'title': 'Taux d\'unicité',
+            'description': 'Pourcentage de questions uniques. Un taux élevé indique une bonne diversité dans le jeu de données, évitant la redondance.',
+            'unit': '%',
+            'target': '> 95%',
+            'target_min': 95
+        },
+        'hallucination_rate': {
+            'title': 'Taux d\'hallucination',
+            'description': 'Pourcentage de réponses contenant des informations potentiellemenet incorrectes ou inexistantes. Un taux bas indique une bonne qualité des données.',
+            'unit': '%',
+            'target': '< 1%',
+            'target_max': 1
+        },
+        'quality_score': {
+            'title': 'Score de qualité',
+            'description': 'Score composite basé sur les autres métriques (code valide 30%, longueur 20%, unicité 20%, base 30%). Reflète la qualité globale du jeu de données.',
+            'unit': '/100',
+            'target': '> 90%',
+            'target_min': 90
+        }
+    }
+    
+    def get_status_class(kpi_key, value):
+        """Get CSS class based on KPI value and target."""
+        metric = metric_descriptions.get(kpi_key, {})
+        target_min = metric.get('target_min')
+        target_max = metric.get('target_max')
+        
+        if target_min is not None and value >= target_min:
+            return 'status-good'
+        elif target_max is not None and value <= target_max:
+            return 'status-good'
+        elif target_min is not None and target_max is not None and target_min <= value <= target_max:
+            return 'status-good'
+        else:
+            return 'status-bad'
+    
+    def get_status_text(kpi_key, value):
+        """Get status text based on KPI value and target."""
+        metric = metric_descriptions.get(kpi_key, {})
+        target_min = metric.get('target_min')
+        target_max = metric.get('target_max')
+        
+        if target_min is not None and value >= target_min:
+            return '✓ OK'
+        elif target_max is not None and value <= target_max:
+            return '✓ OK'
+        elif target_min is not None and target_max is not None and target_min <= value <= target_max:
+            return '✓ OK'
+        else:
+            return '✗ À améliorer'
+    
     # Generate HTML content
     html = f"""<!DOCTYPE html>
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Benchmark Rapport - Laravel LLM</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <title>Benchmark Laravel LLM - {latest.get('model_name', 'N/A')}</title>
     <style>
+        :root {{
+            --primary-color: #2563eb;
+            --success-color: #10b981;
+            --warning-color: #f59e0b;
+            --danger-color: #ef4444;
+            --bg-color: #f8fafc;
+            --card-bg: #ffffff;
+            --text-primary: #1e293b;
+            --text-secondary: #64748b;
+            --border-color: #e2e8f0;
+        }}
+        
+        * {{
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }}
+        
         body {{
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-            max-width: 1200px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            line-height: 1.6;
+            padding: 20px;
+        }}
+        
+        .report-container {{
+            max-width: 1000px;
             margin: 0 auto;
-            padding: 20px;
-            background-color: #f5f5f5;
         }}
-        .container {{
-            background: white;
-            border-radius: 10px;
+        
+        .header {{
+            background: var(--card-bg);
+            border-radius: 12px;
             padding: 30px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            margin-bottom: 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            margin-bottom: 24px;
+            border: 1px solid var(--border-color);
         }}
-        h1 {{
-            color: #333;
-            border-bottom: 3px solid #6366f1;
-            padding-bottom: 10px;
+        
+        .header h1 {{
+            color: var(--text-primary);
+            font-size: 28px;
+            margin-bottom: 10px;
+            font-weight: 700;
         }}
-        h2 {{
-            color: #555;
-            margin-top: 30px;
-        }}
-        .kpi-grid {{
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        
+        .header-meta {{
+            display: flex;
+            flex-wrap: wrap;
             gap: 20px;
-            margin: 20px 0;
-        }}
-        .kpi-card {{
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        }}
-        .kpi-card h3 {{
-            margin: 0 0 10px 0;
+            color: var(--text-secondary);
             font-size: 14px;
-            opacity: 0.9;
+            margin-top: 15px;
         }}
-        .kpi-card .value {{
-            font-size: 32px;
-            font-weight: bold;
+        
+        .header-meta span {{
+            display: flex;
+            align-items: center;
+            gap: 6px;
         }}
-        .kpi-card .target {{
-            font-size: 12px;
-            opacity: 0.8;
-            margin-top: 5px;
+        
+        .section {{
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 28px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+            border: 1px solid var(--border-color);
         }}
-        .status-good {{
-            background: rgba(255,255,255,0.2);
-            padding: 2px 8px;
-            border-radius: 4px;
-            display: inline-block;
-            margin-top: 5px;
+        
+        .section h2 {{
+            font-size: 20px;
+            color: var(--text-primary);
+            margin-bottom: 20px;
+            padding-bottom: 12px;
+            border-bottom: 2px solid var(--primary-color);
+            font-weight: 600;
         }}
-        .status-bad {{
-            background: rgba(255,0,0,0.2);
-            padding: 2px 8px;
-            border-radius: 4px;
-            display: inline-block;
-            margin-top: 5px;
-        }}
-        table {{
-            width: 100%;
-            border-collapse: collapse;
-            margin: 20px 0;
-        }}
-        th, td {{
-            padding: 12px;
-            text-align: left;
-            border-bottom: 1px solid #ddd;
-        }}
-        th {{
-            background-color: #6366f1;
-            color: white;
-        }}
-        tr:hover {{
-            background-color: #f5f5f5;
-        }}
-        .chart-container {{
-            position: relative;
-            height: 400px;
-            margin: 30px 0;
-        }}
-        .model-comparison {{
+        
+        .kpi-grid {{
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
             gap: 20px;
         }}
-        .comparison-card {{
-            background: #f8f9fa;
+        
+        .kpi-card {{
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
             padding: 20px;
-            border-radius: 10px;
-            border-left: 4px solid #6366f1;
+            transition: box-shadow 0.2s;
         }}
-        .best-badge {{
-            background: #10b981;
-            color: white;
-            padding: 4px 12px;
-            border-radius: 12px;
+        
+        .kpi-card:hover {{
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }}
+        
+        .kpi-card h3 {{
+            font-size: 14px;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }}
+        
+        .kpi-card .value {{
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--primary-color);
+            margin-bottom: 8px;
+        }}
+        
+        .kpi-card .description {{
+            font-size: 13px;
+            color: var(--text-secondary);
+            line-height: 1.5;
+            margin-bottom: 12px;
+        }}
+        
+        .kpi-card .meta {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
             font-size: 12px;
+        }}
+        
+        .kpi-card .target {{
+            color: var(--text-secondary);
+        }}
+        
+        .status {{
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }}
+        
+        .status-good {{
+            background: #dcfce7;
+            color: #166534;
+        }}
+        
+        .status-bad {{
+            background: #fee2e2;
+            color: #991b1b;
+        }}
+        
+        table {{
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 16px;
+            font-size: 14px;
+        }}
+        
+        th, td {{
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }}
+        
+        th {{
+            background: var(--bg-color);
+            font-weight: 600;
+            color: var(--text-secondary);
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }}
+        
+        tr:last-child td {{
+            border-bottom: none;
+        }}
+        
+        tr:hover {{
+            background: var(--bg-color);
+        }}
+        
+        .distribution-section {{
+            margin-top: 20px;
+        }}
+        
+        .distribution-section h3 {{
+            font-size: 16px;
+            color: var(--text-primary);
+            margin-bottom: 12px;
+            font-weight: 600;
+        }}
+        
+        .total-row {{
+            font-weight: 600;
+        }}
+        
+        .total-row td {{
+            background: var(--bg-color);
+        }}
+        
+        .comparison-section {{
+            margin-top: 24px;
+        }}
+        
+        .comparison-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 16px;
+        }}
+        
+        .comparison-card {{
+            background: var(--bg-color);
+            border-radius: 8px;
+            padding: 16px;
+            border: 1px solid var(--border-color);
+        }}
+        
+        .comparison-card h4 {{
+            font-size: 14px;
+            color: var(--text-primary);
+            margin-bottom: 12px;
+            font-weight: 600;
+        }}
+        
+        .comparison-card .kpi-row {{
+            display: flex;
+            justify-content: space-between;
+            padding: 6px 0;
+            font-size: 13px;
+            border-bottom: 1px solid var(--border-color);
+        }}
+        
+        .comparison-card .kpi-row:last-child {{
+            border-bottom: none;
+        }}
+        
+        .best-badge {{
+            background: var(--primary-color);
+            color: white;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
             display: inline-block;
-            margin-left: 10px;
+            margin-left: 8px;
+        }}
+        
+        .latest-badge {{
+            background: var(--success-color);
+            color: white;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            display: inline-block;
+            margin-left: 8px;
+        }}
+        
+        @media (max-width: 768px) {{
+            .kpi-grid {{
+                grid-template-columns: 1fr;
+            }}
+            
+            .header-meta {{
+                flex-direction: column;
+                gap: 8px;
+            }}
         }}
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>📊 Laravel LLM Benchmark Report</h1>
-        
-        <div style="margin: 20px 0; color: #666;">
-            <strong>Modèle:</strong> {latest.get('model_name', 'N/A')} | 
-            <strong>Date:</strong> {latest.get('timestamp', 'N/A')} | 
-            <strong>Version Laravel:</strong> {latest.get('version', 'N/A')} | 
-            <strong>Total Q&A:</strong> {latest.get('total_qa_pairs', 0)}
+    <div class="report-container">
+        <div class="header">
+            <h1>📊 Benchmark Laravel LLM</h1>
+            <p style="color: var(--text-secondary); margin-top: 8px; font-size: 15px;">
+                Évaluation des performances du modèle sur les données d'entraînement Laravel
+            </p>
+            <div class="header-meta">
+                <span>🔖 <strong>Modèle:</strong> {latest.get('model_name', 'N/A')}</span>
+                <span>📅 <strong>Date:</strong> {latest.get('timestamp', 'N/A')[:10] if latest.get('timestamp') else 'N/A'}</span>
+                <span>🏷️ <strong>Version Laravel:</strong> {latest.get('version', 'N/A')}</span>
+                <span>📊 <strong>Total Q&A:</strong> {latest.get('total_qa_pairs', 0):,}</span>
+                <span>⏱️ <strong>Temps:</strong> {latest.get('execution_time', 0):.2f}s</span>
+            </div>
         </div>
         
-        <h2>🎯 KPIs Principaux</h2>
-        <div class="kpi-grid">
+        <div class="section">
+            <h2>🎯 Indicateurs Clés de Performance (KPI)</h2>
+            <div class="kpi-grid">
 """
     
-    # Add KPI cards
-    kpi_mapping = {
-        'code_valid_rate': ('Taux de code valide', '%', '> 98%', 'status-good' if latest.get('kpis', {}).get('code_valid_rate', 0) > 98 else 'status-bad'),
-        'topic_coverage_rate': ('Couverture des topics', '%', '> 95%', 'status-good' if latest.get('kpis', {}).get('topic_coverage_rate', 0) > 95 else 'status-bad'),
-        'avg_response_length': ('Longueur moyenne', 'tokens', '50-200', 'status-good' if 50 <= latest.get('kpis', {}).get('avg_response_length', 0) <= 200 else 'status-bad'),
-        'uniqueness_rate': ('Taux d\'unicité', '%', '> 95%', 'status-good' if latest.get('kpis', {}).get('uniqueness_rate', 0) > 95 else 'status-bad'),
-        'hallucination_rate': ('Taux d\'hallucination', '%', '< 1%', 'status-good' if latest.get('kpis', {}).get('hallucination_rate', 0) < 1 else 'status-bad'),
-        'quality_score': ('Score de qualité', '/100', '> 90%', 'status-good' if latest.get('kpis', {}).get('quality_score', 0) > 90 else 'status-bad'),
-    }
+    # Add KPI cards with descriptions
+    for kpi_key, metric in metric_descriptions.items():
+        value = kpis.get(kpi_key, 0)
+        status_class = get_status_class(kpi_key, value)
+        status_text = get_status_text(kpi_key, value)
+        
+        html += f"""                <div class="kpi-card">
+                    <h3>{metric['title']}</h3>
+                    <div class="value">{value:.2f} {metric['unit']}</div>
+                    <p class="description">{metric['description']}</p>
+                    <div class="meta">
+                        <span class="target">Cible: {metric['target']}</span>
+                        <span class="status {status_class}">{status_text}</span>
+                    </div>
+                </div>
+"""
     
-    for kpi_key, (title, unit, target, status_class) in kpi_mapping.items():
-        value = latest.get('kpis', {}).get(kpi_key, 0)
-        html += f"""            <div class="kpi-card">
-                <h3>{title}</h3>
-                <div class="value">{value:.2f} {unit}</div>
-                <div class="target">Cible: {target}</div>
-                <span class="{status_class}">{"✓ OK" if "good" in status_class else "✗ À améliorer"}</span>
+    html += """            </div>
+        </div>
+        
+        <div class="section">
+            <h2>📊 Statistiques de Distribution</h2>
+"""
+    
+    # Length distribution
+    length_dist = latest.get('distributions', {}).get('length', {})
+    total = latest.get('total_qa_pairs', 1)
+    
+    if length_dist:
+        html += """            <div class="distribution-section">
+                <h3>📏 Longueur des réponses</h3>
+                <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 12px;">
+                    Répartition des paires Q/R par nombre de tokens dans la réponse.
+                </p>
+                <table>
+                    <tr><th>Catégorie</th><th>Nombre</th><th>Pourcentage</th></tr>
+"""
+        for category, count in length_dist.items():
+            percentage = (count / total) * 100
+            html += f"                    <tr><td>{category}</td><td>{count:,}</td><td>{percentage:.1f}%</td></tr>\n"
+        html += """                    <tr class="total-row"><td><strong>Total</strong></td><td><strong>""" + f"{total:,}" + """</strong></td><td><strong>100%</strong></td></tr>
+                </table>
             </div>
 """
     
-    html += """        </div>
-        
-        <h2>📈 Distributions</h2>
-        
-        <h3>Longueur des réponses</h3>
-        <table>
-            <tr><th>Catégorie</th><th>Nombre</th><th>Pourcentage</th></tr>
-"""
-    
-    length_dist = latest.get('distributions', {}).get('length', {})
-    total = latest.get('total_qa_pairs', 1)
-    for category, count in length_dist.items():
-        percentage = (count / total) * 100
-        html += f"            <tr><td>{category}</td><td>{count}</td><td>{percentage:.1f}%</td></tr>\n"
-    
-    html += """        </table>
-        
-        <h3>Niveaux de difficulté</h3>
-        <table>
-            <tr><th>Niveau</th><th>Nombre</th><th>Pourcentage</th></tr>
-"""
-    
+    # Level distribution
     level_dist = latest.get('distributions', {}).get('level', {})
-    for level, count in level_dist.items():
-        percentage = (count / total) * 100
-        html += f"            <tr><td>{level}</td><td>{count}</td><td>{percentage:.1f}%</td></tr>\n"
-    
-    html += """        </table>
-        
-        <h3>Top 10 Tags</h3>
-        <table>
-            <tr><th>Tag</th><th>Nombre</th><th>Pourcentage</th></tr>
+    if level_dist:
+        html += """            <div class="distribution-section">
+                <h3>🎓 Niveaux de difficulté</h3>
+                <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 12px;">
+                    Répartition des paires Q/R par niveau de complexité.
+                </p>
+                <table>
+                    <tr><th>Niveau</th><th>Nombre</th><th>Pourcentage</th></tr>
+"""
+        for level, count in level_dist.items():
+            percentage = (count / total) * 100
+            html += f"                    <tr><td>{level}</td><td>{count:,}</td><td>{percentage:.1f}%</td></tr>\n"
+        html += """                    <tr class="total-row"><td><strong>Total</strong></td><td><strong>""" + f"{total:,}" + """</strong></td><td><strong>100%</strong></td></tr>
+                </table>
+            </div>
 """
     
+    # Tag distribution (top 15)
     tag_dist = latest.get('distributions', {}).get('tag', {})
-    top_tags = list(tag_dist.items())[:10]
-    for tag, count in top_tags:
-        percentage = (count / total) * 100
-        html += f"            <tr><td>{tag}</td><td>{count}</td><td>{percentage:.1f}%</td></tr>\n"
-    
-    html += """        </table>
-        
-        <h3>Répartition par poids</h3>
-        <table>
-            <tr><th>Poids</th><th>Nombre</th><th>Pourcentage</th></tr>
+    if tag_dist:
+        top_tags = list(tag_dist.items())[:15]
+        html += """            <div class="distribution-section">
+                <h3>🏷️ Top 15 des tags</h3>
+                <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 12px;">
+                    Tags les plus fréquents dans les qualifications des paires Q/R.
+                </p>
+                <table>
+                    <tr><th>Tag</th><th>Nombre</th><th>Pourcentage</th></tr>
+"""
+        for tag, count in top_tags:
+            percentage = (count / total) * 100
+            html += f"                    <tr><td>{tag}</td><td>{count:,}</td><td>{percentage:.1f}%</td></tr>\n"
+        html += """                </table>
+            </div>
 """
     
+    # Weight distribution
     weight_dist = latest.get('distributions', {}).get('weight', {})
-    for weight, count in weight_dist.items():
-        percentage = (count / total) * 100
-        html += f"            <tr><td>{weight}</td><td>{count}</td><td>{percentage:.1f}%</td></tr>\n"
-    
-    html += """        </table>
-        
-        <h3>Répartition par score</h3>
-        <table>
-            <tr><th>Score</th><th>Nombre</th><th>Pourcentage</th></tr>
+    if weight_dist:
+        html += """            <div class="distribution-section">
+                <h3>⚖️ Répartition par poids</h3>
+                <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 12px;">
+                    Poids attribués aux paires Q/R pour le fine-tuning (basé sur le niveau de difficulté).
+                </p>
+                <table>
+                    <tr><th>Poids</th><th>Nombre</th><th>Pourcentage</th></tr>
+"""
+        for weight, count in sorted(weight_dist.items(), key=lambda x: float(x[0])):
+            percentage = (count / total) * 100
+            html += f"                    <tr><td>{weight}</td><td>{count:,}</td><td>{percentage:.1f}%</td></tr>\n"
+        html += """                </table>
+            </div>
 """
     
+    # Score distribution
     score_dist = latest.get('distributions', {}).get('score', {})
-    for score_range, count in score_dist.items():
-        percentage = (count / total) * 100
-        html += f"            <tr><td>{score_range}</td><td>{count}</td><td>{percentage:.1f}%</td></tr>\n"
+    if score_dist:
+        html += """            <div class="distribution-section">
+                <h3>⭐ Répartition par score composite</h3>
+                <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 12px;">
+                    Scores composites calculés pour chaque paire Q/R (poids × bonus code × bonus utilité).
+                </p>
+                <table>
+                    <tr><th>Plage de score</th><th>Nombre</th><th>Pourcentage</th></tr>
+"""
+        for score_range, count in score_dist.items():
+            percentage = (count / total) * 100
+            html += f"                    <tr><td>{score_range}</td><td>{count:,}</td><td>{percentage:.1f}%</td></tr>\n"
+        html += """                </table>
+            </div>
+"""
     
     # Add comparison section if multiple results
     if len(results) > 1:
-        html += """        </table>
+        html += """        </div>
         
-        <h2>🔄 Comparaison des modèles</h2>
-        <div class="model-comparison">
+        <div class="section">
+            <h2>🔄 Comparaison Historique</h2>
+            <p style="color: var(--text-secondary); font-size: 14px; margin-bottom: 20px;">
+                Comparaison avec les résultats des exécutions précédentes du benchmark.
+            </p>
+            <div class="comparison-grid">
 """
         
+        # Sort results by timestamp for comparison
         for result in results:
-            kpis = result.get('kpis', {})
-            html += f"""            <div class="comparison-card">
-                <h3>{result.get('model_name', 'Unknown')}</h3>
-                <p><strong>Date:</strong> {result.get('timestamp', 'N/A')}</p>
-                <p><strong>Q&A:</strong> {result.get('total_qa_pairs', 0)}</p>
-                <p><strong>Code valide:</strong> {kpis.get('code_valid_rate', 0):.1f}%</p>
-                <p><strong>Couverture:</strong> {kpis.get('topic_coverage_rate', 0):.1f}%</p>
-                <p><strong>Qualité:</strong> {kpis.get('quality_score', 0):.1f}/100</p>
+            result_kpis = result.get('kpis', {})
+            is_latest = (result == latest)
+            
+            html += f"""                <div class="comparison-card">
+                    <h4>{result.get('model_name', 'Unknown')}
+                        <span class="{'latest-badge' if is_latest else ''}">{'Dernier' if is_latest else ''}</span>
+                    </h4>
+                    <p style="color: var(--text-secondary); font-size: 12px; margin-bottom: 12px;">
+                        {result.get('timestamp', 'N/A')[:10] if result.get('timestamp') else 'N/A'}
+                    </p>
 """
-            if result == latest:
-                html += '                <span class="best-badge">Dernier</span>'
-            html += """            </div>
+            
+            # Show key metrics
+            metrics_to_show = [
+                ('code_valid_rate', 'Code valide', '%'),
+                ('topic_coverage_rate', 'Couverture', '%'),
+                ('avg_response_length', 'Longueur avg', 't'),
+                ('uniqueness_rate', 'Unicité', '%'),
+                ('quality_score', 'Qualité', '/100')
+            ]
+            
+            for kpi_key, short_name, unit in metrics_to_show:
+                value = result_kpis.get(kpi_key, 0)
+                html += f'                    <div class="kpi-row"><span>{short_name}:</span><strong>{value:.1f}{unit}</strong></div>\n'
+            
+            html += """                </div>
 """
         
+        html += """            </div>
+        </div>
+"""
+    
+    else:
         html += """        </div>
 """
     
-    # Add JavaScript for charts
     html += """    </div>
     
-    <script>
-        // KPI Chart
-        const kpiCtx = document.createElement('canvas');
-        document.body.appendChild(kpiCtx);
-        
-        const kpiData = """
-    
-    # Prepare chart data
-    kpi_names = ['Code valide', 'Couverture', 'Longueur', 'Unicité', 'Hallucination', 'Qualité']
-    kpi_values = [
-        latest.get('kpis', {}).get('code_valid_rate', 0),
-        latest.get('kpis', {}).get('topic_coverage_rate', 0),
-        latest.get('kpis', {}).get('avg_response_length', 0),
-        latest.get('kpis', {}).get('uniqueness_rate', 0),
-        latest.get('kpis', {}).get('hallucination_rate', 0),
-        latest.get('kpis', {}).get('quality_score', 0),
-    ]
-    
-    html += f"""[{{
-            labels: {json.dumps(kpi_names)},
-            datasets: [{{
-                label: 'Valeurs KPI',
-                data: {kpi_values},
-                backgroundColor: [
-                    'rgba(75, 192, 192, 0.6)',
-                    'rgba(54, 162, 235, 0.6)',
-                    'rgba(255, 206, 86, 0.6)',
-                    'rgba(153, 102, 255, 0.6)',
-                    'rgba(255, 99, 132, 0.6)',
-                    'rgba(75, 192, 192, 0.6)'
-                ],
-                borderColor: [
-                    'rgba(75, 192, 192, 1)',
-                    'rgba(54, 162, 235, 1)',
-                    'rgba(255, 206, 86, 1)',
-                    'rgba(153, 102, 255, 1)',
-                    'rgba(255, 99, 132, 1)',
-                    'rgba(75, 192, 192, 1)'
-                ],
-                borderWidth: 1
-            }}]
-        }}];
-        
-        new Chart(kpiCtx, {{
-            type: 'bar',
-            data: kpiData,
-            options: {{
-                scales: {{
-                    y: {{
-                        beginAtZero: true
-                    }}
-                }}
-            }}
-        }});
-    </script>
+    <div style="text-align: center; margin-top: 30px; color: var(--text-secondary); font-size: 12px;">
+        Généré par Laravel LLM Benchmark | """ + datetime.now().strftime("%Y-%m-%d %H:%M:%S") + """
+    </div>
 </body>
 </html>"""
     
@@ -375,42 +625,32 @@ def generate_comparison_report(results: list[dict], output_path: Optional[str] =
     # Get all model names
     model_names = [r.get('model_name', 'Unknown') for r in results]
     
-    html = f"""<!DOCTYPE html>
-<html>
-<head>
-    <title>Comparaison Modèles - Laravel LLM</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <style>
-        body {{ font-family: Arial, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; }}
-        .comparison-table {{ width: 100%; border-collapse: collapse; margin: 20px 0; }}
-        .comparison-table th, .comparison-table td {{ padding: 12px; text-align: left; border: 1px solid #ddd; }}
-        .comparison-table th {{ background: #6366f1; color: white; }}
-        .best {{ background: #d4edda; font-weight: bold; }}
-        .chart-container {{ position: relative; height: 400px; margin: 30px 0; }}
-    </style>
-</head>
-<body>
-    <h1>🔄 Comparaison des Modèles LLM</h1>
-    <p><strong>Modèles:</strong> {', '.join(model_names)}</p>
-    
-    <h2>📊 Tableau Comparatif</h2>
-    <table class="comparison-table">
-        <tr>
-            <th>KPI</th>
-            {' '.join(f'<th>{name}</th>' for name in model_names)}
-            <th>Meilleur</th>
-        </tr>
-"""
-    
+    # KPI configuration
     kpis = ['code_valid_rate', 'topic_coverage_rate', 'avg_response_length', 
             'uniqueness_rate', 'hallucination_rate', 'quality_score']
     kpi_display = {
-        'code_valid_rate': 'Taux code valide (%)',
-        'topic_coverage_rate': 'Couverture topics (%)',
-        'avg_response_length': 'Longueur moyenne (tokens)',
-        'uniqueness_rate': 'Unicité (%)',
-        'hallucination_rate': 'Hallucination (%)',
-        'quality_score': 'Score qualité (/100)',
+        'code_valid_rate': 'Taux code valide',
+        'topic_coverage_rate': 'Couverture topics',
+        'avg_response_length': 'Longueur moyenne',
+        'uniqueness_rate': 'Taux unicité',
+        'hallucination_rate': 'Taux hallucination',
+        'quality_score': 'Score qualité',
+    }
+    kpi_descriptions = {
+        'code_valid_rate': 'Pourcentage de Q/R avec code PHP valide',
+        'topic_coverage_rate': 'Pourcentage des topics Laravel couverts',
+        'avg_response_length': 'Nombre moyen de tokens par réponse',
+        'uniqueness_rate': 'Pourcentage de questions uniques',
+        'hallucination_rate': 'Pourcentage de réponses avec erreurs factuelles',
+        'quality_score': 'Score composite (0-100) basé sur tous les KPI',
+    }
+    kpi_units = {
+        'code_valid_rate': '%',
+        'topic_coverage_rate': '%',
+        'avg_response_length': 'tokens',
+        'uniqueness_rate': '%',
+        'hallucination_rate': '%',
+        'quality_score': '/100',
     }
     
     # Find best for each KPI
@@ -421,57 +661,194 @@ def generate_comparison_report(results: list[dict], output_path: Optional[str] =
             values[model_names[i]] = result.get('kpis', {}).get(kpi, 0)
         best_models[kpi] = max(values, key=values.get)
     
+    # Build KPI table rows
+    kpi_table_rows = ''
     for kpi in kpis:
-        html += f"<tr><td>{kpi_display.get(kpi, kpi)}</td>"
+        display_name = kpi_display.get(kpi, kpi)
+        description = kpi_descriptions.get(kpi, '')
+        unit = kpi_units.get(kpi, '')
+        
+        kpi_table_rows += f'<tr><td><strong>{display_name}</strong></td><td style="font-size: 13px; color: var(--text-secondary);">{description}</td>'
+        
         for result in results:
             value = result.get('kpis', {}).get(kpi, 0)
-            html += f"<td>{value:.2f}</td>"
-        html += f"<td class='best'>{best_models[kpi]}</td></tr>\n"
-    
-    html += """    </table>
-    
-    <h2>📈 Graphiques</h2>
-    <div class="chart-container">
-        <canvas id="comparisonChart"></canvas>
-    </div>
-    
-    <script>
-        const ctx = document.getElementById('comparisonChart').getContext('2d');
-        const labels = """ + json.dumps(kpi_display.values()) + """
-        const datasets = ["""
-    
-    # Prepare datasets
-    colors = ['#6366f1', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#06b6d4']
-    datasets_js = []
-    for i, (result, model) in enumerate(zip(results, model_names)):
-        kpi_values = [result.get('kpis', {}).get(kpi, 0) for kpi in kpis]
-        datasets_js.append({
-            'label': model,
-            'data': kpi_values,
-            'backgroundColor': colors[i % len(colors)],
-            'borderColor': colors[i % len(colors)],
-            'borderWidth': 1
-        })
-    
-    html += json.dumps(datasets_js) + """
-        ];
+            if kpi == 'hallucination_rate':
+                score_class = 'score-good' if value < 1 else ('score-warning' if value < 5 else 'score-bad')
+            else:
+                score_class = 'score-good' if value > 90 else ('score-warning' if value > 70 else 'score-bad')
+            kpi_table_rows += f'<td class="{score_class}">{value:.1f}{unit}</td>'
         
-        new Chart(ctx, {
-            type: 'radar',
-            data: {
-                labels: labels,
-                datasets: datasets
-            },
-            options: {
-                scales: {
-                    r: {
-                        beginAtZero: true,
-                        max: 100
-                    }
-                }
-            }
-        });
-    </script>
+        kpi_table_rows += f'<td class="best">{best_models[kpi]}</td></tr>\n'
+    
+    # Build model summary rows
+    model_rows = ''
+    for result in results:
+        kpis_data = result.get('kpis', {})
+        quality = kpis_data.get('quality_score', 0)
+        is_latest = (result == results[0])
+        
+        if quality >= 90:
+            status_html = '<span style="color: var(--success-color); font-weight: 600;">✓ Excellente qualité</span>'
+        elif quality >= 70:
+            status_html = '<span style="color: #f59e0b; font-weight: 600;">⚠ Bonne qualité</span>'
+        else:
+            status_html = '<span style="color: #ef4444; font-weight: 600;">✗ Qualité à améliorer</span>'
+        
+        timestamp = result.get('timestamp', 'N/A')
+        date_str = timestamp[:10] if timestamp else 'N/A'
+        model_name = result.get('model_name', 'Unknown')
+        total_qa = result.get('total_qa_pairs', 0)
+        version = result.get('version', 'N/A')
+        latest_badge = '🏆 Dernier' if is_latest else ''
+        
+        model_rows += f'<tr>\n'
+        model_rows += f'    <td><strong>{model_name}</strong> {latest_badge}</td>\n'
+        model_rows += f'    <td>{date_str}</td>\n'
+        model_rows += f'    <td>{total_qa:,}</td>\n'
+        model_rows += f'    <td>{version}</td>\n'
+        model_rows += f'    <td><strong>{quality:.1f}/100</strong></td>\n'
+        model_rows += f'    <td>{status_html}</td>\n'
+        model_rows += f'</tr>\n'
+    
+    # Generate HTML
+    html = f"""<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Comparaison Modèles - Laravel LLM</title>
+    <style>
+        :root {{
+            --primary-color: #2563eb;
+            --success-color: #10b981;
+            --bg-color: #f8fafc;
+            --card-bg: #ffffff;
+            --text-primary: #1e293b;
+            --text-secondary: #64748b;
+            --border-color: #e2e8f0;
+        }}
+        
+        * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+        
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            line-height: 1.6;
+            padding: 20px;
+        }}
+        
+        .report-container {{ max-width: 1000px; margin: 0 auto; }}
+        
+        .header {{
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            margin-bottom: 24px;
+            border: 1px solid var(--border-color);
+        }}
+        
+        .header h1 {{ font-size: 28px; margin-bottom: 10px; font-weight: 700; }}
+        .header p {{ color: var(--text-secondary); margin-top: 8px; font-size: 15px; }}
+        
+        .section {{
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 28px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+            border: 1px solid var(--border-color);
+        }}
+        
+        .section h2 {{ font-size: 20px; margin-bottom: 20px; padding-bottom: 12px; border-bottom: 2px solid var(--primary-color); font-weight: 600; }}
+        
+        .comparison-table {{
+            width: 100%;
+            border-collapse: collapse;
+            margin: 16px 0;
+            font-size: 14px;
+        }}
+        
+        .comparison-table th, .comparison-table td {{ padding: 12px; text-align: left; border-bottom: 1px solid var(--border-color); }}
+        
+        .comparison-table th {{
+            background: var(--bg-color);
+            font-weight: 600;
+            color: var(--text-secondary);
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }}
+        
+        .comparison-table tr:last-child td {{ border-bottom: none; }}
+        .comparison-table tr:hover {{ background: var(--bg-color); }}
+        
+        .best {{ background: #dcfce7; color: #166534; font-weight: 600; }}
+        
+        .score-good {{ color: var(--success-color); font-weight: 600; }}
+        .score-warning {{ color: #f59e0b; font-weight: 600; }}
+        .score-bad {{ color: #ef4444; font-weight: 600; }}
+        
+        @media (max-width: 768px) {{
+            .comparison-table {{ font-size: 12px; }}
+            .comparison-table th, .comparison-table td {{ padding: 8px; }}
+        }}
+    </style>
+</head>
+<body>
+    <div class="report-container">
+        <div class="header">
+            <h1>🔄 Comparaison des Modèles LLM</h1>
+            <p>Comparaison des performances entre différents modèles ou versions</p>
+        </div>
+        
+        <div class="section">
+            <h2>📊 Tableau Comparatif des KPI</h2>
+            <p style="color: var(--text-secondary); font-size: 14px; margin-bottom: 16px;">
+                Comparaison détaillée des indicateurs de performance entre les modèles.
+            </p>
+            <table class="comparison-table">
+                <thead>
+                    <tr>
+                        <th>Indicateur</th>
+                        <th>Description</th>
+                        {' '.join(f'<th>{name}</th>' for name in model_names)}
+                        <th>Meilleur</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {kpi_table_rows}
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="section">
+            <h2>📋 Résumé par Modèle</h2>
+            <p style="color: var(--text-secondary); font-size: 14px; margin-bottom: 16px;">
+                Vue d'ensemble des métriques pour chaque modèle.
+            </p>
+            <table class="comparison-table">
+                <thead>
+                    <tr>
+                        <th>Modèle</th>
+                        <th>Date</th>
+                        <th>Total Q&A</th>
+                        <th>Version Laravel</th>
+                        <th>Score Qualité</th>
+                        <th>Statut</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {model_rows}
+                </tbody>
+            </table>
+        </div>
+        
+        <div style="text-align: center; margin-top: 30px; color: var(--text-secondary); font-size: 12px;">
+            Généré par Laravel LLM Benchmark | {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+        </div>
+    </div>
 </body>
 </html>"""
     
