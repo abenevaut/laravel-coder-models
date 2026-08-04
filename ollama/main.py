@@ -45,6 +45,104 @@ def count_training_items() -> int:
     return count
 
 
+def select_balanced_samples(all_samples: list[dict], target_count: int) -> list[dict]:
+    """Select samples to maximize tag coverage, level representation, and scoring.
+    
+    Strategy:
+    1. First, ensure every tag is represented by at least 1 sample (highest score)
+    2. Then, ensure every level is represented proportionally
+    3. Fill remaining slots with highest scoring samples
+    4. Truncate to target_count if needed
+    """
+    if not all_samples:
+        return []
+    
+    # Collect all unique tags and levels
+    all_tags = set()
+    all_levels = set()
+    for sample in all_samples:
+        for tag in sample.get("tags", []):
+            if tag:
+                all_tags.add(tag)
+        all_levels.add(sample.get("level", "intermédiaire"))
+    
+    selected = []
+    selected_tags = set()
+    selected_levels = set()
+    remaining_samples = all_samples.copy()
+    
+    # Phase 1: Ensure every tag is represented (highest score first)
+    for sample in all_samples:
+        if len(selected) >= target_count:
+            break
+        
+        sample_tags = sample.get("tags", [])
+        new_tags = [t for t in sample_tags if t and t not in selected_tags]
+        
+        if new_tags and sample not in selected:
+            selected.append(sample)
+            selected_tags.update(new_tags)
+            if sample.get("level"):
+                selected_levels.add(sample["level"])
+    
+    # Phase 2: Ensure every level is represented
+    missing_levels = all_levels - selected_levels
+    for level in sorted(missing_levels):
+        if len(selected) >= target_count:
+            break
+        
+        # Find highest scoring sample for this level with a new tag or not already selected
+        for sample in all_samples:
+            if sample["level"] == level and sample not in selected:
+                selected.append(sample)
+                if sample.get("level"):
+                    selected_levels.add(sample["level"])
+                for tag in sample.get("tags", []):
+                    if tag:
+                        selected_tags.add(tag)
+                break
+    
+    # Phase 3: Fill remaining slots with highest scoring samples
+    for sample in all_samples:
+        if len(selected) >= target_count:
+            break
+        if sample not in selected:
+            selected.append(sample)
+            for tag in sample.get("tags", []):
+                if tag:
+                    selected_tags.add(tag)
+            if sample.get("level"):
+                selected_levels.add(sample["level"])
+    
+    # Phase 4: If we still have room, add more high-scoring samples
+    # Sort remaining by score and add
+    remaining = [s for s in all_samples if s not in selected]
+    remaining.sort(key=lambda x: x["score"], reverse=True)
+    
+    for sample in remaining:
+        if len(selected) >= target_count:
+            break
+        selected.append(sample)
+    
+    # Truncate to exact target count
+    selected = selected[:target_count]
+    
+    # Remove internal fields not needed in output
+    result = []
+    for sample in selected:
+        result.append({
+            "instruction": sample["instruction"],
+            "output": sample["output"],
+            "topic": sample["topic"],
+            "tags": sample.get("tags", []),
+            "level": sample.get("level", "intermédiaire"),
+            "score": sample.get("score", 1.0),
+            "version": sample["version"]
+        })
+    
+    return result
+
+
 def extract_topics_from_metadata(metadata: dict) -> list[str]:
     """Extract unique topics from metadata tag_distribution."""
     topics = set()
@@ -67,27 +165,58 @@ def get_version(metadata: dict) -> str:
 
 
 def load_sample_conversations(count: int = 100) -> list[dict]:
-    """Load sample conversations from training data for MESSAGE examples."""
+    """Load sample conversations from training data for MESSAGE examples.
+    
+    Selects samples to maximize tag coverage, level representation, and global scoring.
+    """
     if not TRAINING_FILE.exists():
         return []
     
-    conversations = []
+    # Load ALL samples with their metadata
+    all_samples = []
     with open(TRAINING_FILE, "r", encoding="utf-8") as f:
-        for i, line in enumerate(f):
-            if i >= count:
-                break
+        for line in f:
             if line.strip():
                 try:
                     data = json.loads(line)
-                    conversations.append({
+                    # Extract all relevant metadata
+                    # Tags can be in qualification.tags or data.tags
+                    qual_tags = data.get("qualification", {}).get("tags", [])
+                    direct_tags = data.get("tags", [])
+                    tags = list(set(qual_tags + direct_tags))
+                    
+                    # If still no tags, use the topic
+                    if not tags and data.get("topic"):
+                        tags = [data["topic"]]
+                    
+                    # Also add subtopics if present
+                    subtopics = data.get("subtopics", [])
+                    if subtopics:
+                        tags = list(set(tags + subtopics))
+                    
+                    level = data.get("level", data.get("niveau", "intermédiaire"))
+                    score = data.get("score", data.get("weight", 1.0))
+                    
+                    all_samples.append({
                         "instruction": data.get("instruction", ""),
                         "output": data.get("output", ""),
                         "topic": data.get("topic", "Laravel"),
-                        "version": data.get("version", "13.x")
+                        "tags": tags,
+                        "level": level,
+                        "score": float(score) if score else 1.0,
+                        "version": data.get("version", "13.x"),
+                        "qualification": data.get("qualification", {})
                     })
-                except json.JSONDecodeError:
+                except (json.JSONDecodeError, ValueError, TypeError):
                     continue
-    return conversations
+    
+    if not all_samples:
+        return []
+    
+    # Sort by score descending
+    all_samples.sort(key=lambda x: x["score"], reverse=True)
+    
+    return select_balanced_samples(all_samples, count)
 
 
 def format_topics_list(topics: list[str], max_items: int = 15) -> str:
