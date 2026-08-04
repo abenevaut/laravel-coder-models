@@ -299,22 +299,25 @@ def detect_hallucination_rate(qa_items: list[dict]) -> float:
     # Common Laravel hallucination patterns
     hallucination_patterns = [
         # Non-existent Laravel functions
-        r'\\Laravel::nonExistent\b',
-        r'\\App::fakeMethod\b',
-        r'\\Route::invalidVerb\b',
+        r'\\bLaravel::nonExistent\b',
+        r'\\bApp::fakeMethod\b',
+        r'\\bRoute::invalidVerb\b',
         # Non-existent packages
-        r'\\NonExistentPackage\\',
-        r'use NonExistent\\',
-        # Incorrect syntax
-        r'function \([^)]*\) \{',  # PHP 4 style
-        r'var \$',  # JavaScript var in PHP
+        r'\\bNonExistentPackage\b',
+        r'\\buse NonExistent\b',
+        # Incorrect syntax - PHP 4 style function declaration (with function NAME)
+        # This pattern specifically matches named functions with old syntax: function name() {
+        # It does NOT match closures: function () { or function ($param) {
+        r'\\bfunction\s+\w+\s*\([^)]*\)\s*\{',
+        # JavaScript var in PHP context
+        r'\\bvar\s+\$',
         # Impossible combinations
-        r'Laravel 15\.x',
-        r'PHP 9\.0',
+        r'\\bLaravel 15\.x\b',
+        r'\\bPHP 9\.0\b',
     ]
     
     for qa in qa_items:
-        output = qa.get("output", "").lower()
+        output = qa.get("output", "")
         for pattern in hallucination_patterns:
             if re.search(pattern, output, re.IGNORECASE):
                 hallucination_count += 1
