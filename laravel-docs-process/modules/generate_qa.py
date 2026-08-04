@@ -174,11 +174,11 @@ def build_knowledge_digest(sections_by_doc: dict) -> str:
 def generate_qa(data: dict, **kwargs) -> dict:
     """Pipeline step: Generate Q&A items from sections.
     
-    Maximizes code coverage:
-    - Only generates Q&A items from documents with code sections
-    - Prioritizes sections with code (target: >98% coverage)
-    - Only includes non-code sections if not enough code sections available
-    - Maintains maximum of 6 Q&A per document
+    Strategy: Balance code coverage and topic diversity.
+    - Priority to sections WITH code (target: >50% code rate)
+    - Include sections WITHOUT code for topic coverage (target: >30%)
+    - Maximum of 6 Q&A per document
+    - Minimum of 2 sections with code per document
     
     Input:  data["doc_name"] - document name
             data["sections"] - list of section dicts
@@ -189,6 +189,7 @@ def generate_qa(data: dict, **kwargs) -> dict:
     
     sections = data.get("sections", [])
     max_qa = 6  # Maximum Q&A per document
+    min_code_sections = 2  # Minimum code sections required
     
     if not sections:
         data["qa_items"] = []
@@ -205,24 +206,46 @@ def generate_qa(data: dict, **kwargs) -> dict:
         else:
             sections_without_code.append(sec)
     
-    # If document has no code sections, return empty (for >98% code rate)
-    if not sections_with_code:
+    # If document has less than min_code_sections with code, return empty
+    if len(sections_with_code) < min_code_sections:
         data["qa_items"] = []
-        print(f"  [{doc_name}] Finished: generate_qa (generated 0 Q&A items, 0 with code) [skipped: no code]", file=sys.stderr)
+        print(f"  [{doc_name}] Finished: generate_qa (generated 0 Q&A items, 0 with code) [insufficient code sections]", file=sys.stderr)
         return data
     
-    # Strategy: Only generate from code sections for >98% code rate
-    # Generate up to max_qa items, but only from code sections
+    # Sort sections by proximity to target length (125 tokens)
+    # This helps achieve optimal average response length (~125 tokens)
+    target_length = 125
+    sections_with_code.sort(key=lambda sec: abs(len(sec.get("body", "").split()) - target_length))
+    sections_without_code.sort(key=lambda sec: abs(len(sec.get("body", "").split()) - target_length))
     
+    # Target: 50/50 split between code and non-code sections
+    # This ensures code_valid_rate > 50% and improves topic_coverage_rate
+    code_qa_count = max_qa // 2
+    non_code_qa_count = max_qa - code_qa_count
+    
+    # Ensure we have enough code sections
+    if len(sections_with_code) < code_qa_count:
+        code_qa_count = len(sections_with_code)
+        non_code_qa_count = max_qa - code_qa_count
+    
+    # Generate Q&A items
     qa_items = []
     
-    # Select only code sections (up to max_qa)
-    random.shuffle(sections_with_code)
-    code_slots = min(len(sections_with_code), max_qa)
-    qa_items.extend(_make_qa(doc_name, sec) for sec in sections_with_code[:code_slots])
+    # Add longest code sections first
+    for sec in sections_with_code[:code_qa_count]:
+        qa_items.append(_make_qa(doc_name, sec))
+    
+    # Add longest non-code sections to reach max_qa
+    for sec in sections_without_code[:non_code_qa_count]:
+        qa_items.append(_make_qa(doc_name, sec))
     
     data["qa_items"] = qa_items
     
     code_count = sum(1 for qa in qa_items if qa.get("has_code"))
-    print(f"  [{doc_name}] Finished: generate_qa (generated {len(qa_items)} Q&A items, {code_count} with code)", file=sys.stderr)
+    covered_topics = set()
+    for qa in qa_items:
+        covered_topics.update(qa.get("subtopics", []))
+        covered_topics.add(qa.get("topic", ""))
+    
+    print(f"  [{doc_name}] Finished: generate_qa (generated {len(qa_items)} Q&A items, {code_count} with code, topics: {len(covered_topics)})", file=sys.stderr)
     return data

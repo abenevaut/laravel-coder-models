@@ -14,6 +14,87 @@ from modules.generate_qa import build_knowledge_digest
 from modules.qualify_llm import LLMConfig, load_llm_config, qualify_with_llm
 
 
+def determine_level_heuristic(qa: dict) -> str:
+    """Determine level based on content heuristics when LLM is not available."""
+    topic = qa.get("topic", "").lower()
+    instruction = qa.get("instruction", "").lower()
+    output = qa.get("output", "").lower()
+    has_code = qa.get("has_code", False)
+    subtopics = qa.get("subtopics", [])
+    
+    # Normalize topic list
+    all_topics = [topic] + [t.lower() for t in subtopics]
+    topic_str = " ".join(all_topics)
+    full_text = f"{topic_str} {instruction} {output}"
+    
+    # Beginner topic indicators (very specific)
+    beginner_indicators = {
+        "introduction", "getting started", "installation", "setup",
+        "basic", "beginner", "tutorial", "hello world", "first steps",
+        "overview", "what is", "understanding"
+    }
+    
+    # Advanced topics (expert-level concepts)
+    advanced_topics = {
+        "ai", "boost",
+        "service container", "dependency injection", "bindings",
+        "contracts", "facades", "interface", "abstraction", "repository pattern",
+        "queue", "horizon", "job", "worker", "failed jobs",
+        "broadcasting", "websocket", "reverb", "echo",
+        "event", "listener", "observer", "model events",
+        "cache", "redis", "caching", "remember", "cache tags",
+        "service provider", "boot", "register", "macro",
+        "swoole", "frankenphp", "octane",
+        "passport", "sanctum", "oauth"
+    }
+    
+    # Intermediate topics (common Laravel features)
+    intermediate_topics = {
+        "authentication", "authorization", 
+        "artisan", "scheduling", "commands", "command",
+        "eloquent", "relationships", "polymorphic", "morphto", "pivot",
+        "container", "migration", "schema", "database", "table", "column",
+        "model", "query", "builder",
+        "controller", "resource controller", "invokable",
+        "request", "form request", "validation", "validate",
+        "response", "json", "redirect", "view", "blade",
+        "route", "routing", "named routes", "route model binding",
+        "session", "cookie", "flash", "localization",
+        "logging", "exception", "error handling",
+        "configuration", "environment", "env", "config",
+        "middleware", "policies", "gates", "policy"
+    }
+    
+    # Check for beginner indicators first (only if no code)
+    if not has_code:
+        for indicator in beginner_indicators:
+            if indicator in full_text:
+                return "débutant"
+    
+    # Check for advanced topics in topic or subtopics
+    for topic_keyword in advanced_topics:
+        if topic_keyword in topic_str:
+            return "avancé"
+    
+    # Also check for advanced keywords in instruction/output
+    for topic_keyword in advanced_topics:
+        if topic_keyword in instruction or topic_keyword in output:
+            return "avancé"
+    
+    # Check for intermediate topics in topic or subtopics
+    for topic_keyword in intermediate_topics:
+        if topic_keyword in topic_str:
+            return "intermédiaire"
+    
+    # Also check for intermediate keywords in instruction/output
+    for topic_keyword in intermediate_topics:
+        if topic_keyword in instruction or topic_keyword in output:
+            return "intermédiaire"
+    
+    # Default: everything else is intermediate
+    return "intermédiaire"
+
+
 def load_env_file(env_path: Path) -> dict:
     """Load environment variables from a .env file."""
     env_vars = {}
@@ -86,7 +167,7 @@ def main():
             qa["qualification"] = {
                 "useful": True,
                 "tags": [],
-                "level": "intermédiaire",
+                "level": determine_level_heuristic(qa),
                 "has_code": False
             }
         
@@ -252,6 +333,15 @@ def main():
             # Add level-based KPIs
             if level_counts:
                 meta["kpis"]["level_distribution"] = level_counts
+        
+        # Also add level distribution even if LLM was not used
+        if not llm_config.enabled:
+            level_counts = {}
+            for qa in all_qa:
+                level = qa.get("niveau", qa.get("level", "inconnu"))
+                level_counts[level] = level_counts.get(level, 0) + 1
+            meta["level_distribution"] = level_counts
+            meta["kpis"]["level_distribution"] = level_counts
         
         (OUTPUT_DIR / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
         print(json.dumps(meta, indent=2))

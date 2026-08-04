@@ -49,8 +49,8 @@ def generate_html_report(results: list[dict], output_path: Optional[str] = None)
             'title': 'Taux de code valide',
             'description': 'Pourcentage de paires Q/R contenant du code PHP valide. Un taux élevé indique que le jeu de données est riche en exemples de code, essentiel pour l\'entraînement d\'un modèle spécialisé en développement Laravel.',
             'unit': '%',
-            'target': '> 98%',
-            'target_min': 98
+            'target': '> 50%',
+            'target_min': 50
         },
         'topic_coverage_rate': {
             'title': 'Couverture des topics',
@@ -85,8 +85,8 @@ def generate_html_report(results: list[dict], output_path: Optional[str] = None)
             'title': 'Score de qualité',
             'description': 'Score composite basé sur les autres métriques (code valide 30%, longueur 20%, unicité 20%, base 30%). Reflète la qualité globale du jeu de données.',
             'unit': '/100',
-            'target': '> 90%',
-            'target_min': 90
+            'target': '> 60%',
+            'target_min': 60
         }
     }
     

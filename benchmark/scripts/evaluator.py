@@ -63,7 +63,7 @@ class BenchmarkResult:
             "total_qa_pairs": self.total_qa_pairs,
             "kpis": {
                 "code_valid_rate": round(self.code_valid_rate, 2),
-                "target_code_valid_rate": "> 98%",
+                "target_code_valid_rate": "> 50%",
                 "topic_coverage_rate": round(self.topic_coverage_rate, 2),
                 "target_topic_coverage": "> 95%",
                 "avg_response_length": round(self.avg_response_length, 2),

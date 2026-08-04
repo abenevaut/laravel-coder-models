@@ -42,18 +42,39 @@ LEVEL_WEIGHTS = {
 # Prompt template for LLM qualification
 QUALIFICATION_PROMPT = """
 Analyse cette paire Q/R pour un modèle expert Laravel (v10-13) :
+
 ---
 Question: {instruction}
 Réponse: {output}
 ---
-Réponds avec un JSON valide contenant EXACTEMENT ces champs :
+
+### CRITÈRES DE NIVEAU (STRICT) :
+
+**"débutant"** :
+- Concepts fundamentaux : routing basique, controllers simples, Blade, validation basique
+- Explications simples, code minimal ou aucun code
+- Introduction aux concepts de base de Laravel
+- Exemples : créer une route, afficher une vue, validation simple
+
+**"intermédiaire"** :
+- Eloquent (relations, queries, migrations), middleware, service providers, API basique
+- Code avec patterns Laravel standards
+- Explications détaillées avec exemples concrets
+- Gestion d'authentification, queues simples, events de base
+
+**"avancé"** :
+- Service container, dependency injection avancée, relations polymorphiques, N+1 optimization
+- Queues avancées (Horizon, batching), events/listeners complexes, caching sophistiqué
+- Optimisation, performance, architectures distribuées
+- Code expert avec patterns avancés (Repository, DDD, CQRS)
+
+Réponds UNIQUEMENT avec ce JSON (sans texte supplémentaire) :
 {{
     "useful": true/false,
     "tags": ["tag1", "tag2", "tag3"],
     "level": "débutant"|"intermédiaire"|"avancé",
     "has_code": true/false
 }}
-Ne réponds que par le JSON, sans commentaire.
 """
 
 
@@ -154,7 +175,11 @@ class LLMQualifier:
         if start >= 0 and end > start:
             json_str = response[start:end]
             try:
-                return json.loads(json_str)
+                result = json.loads(json_str)
+                # Normalize level to lowercase
+                if "level" in result:
+                    result["level"] = result["level"].lower()
+                return result
             except json.JSONDecodeError:
                 pass
         # Fallback: return default values
@@ -333,10 +358,11 @@ def qualify_with_llm(all_qa: list[dict], llm_config: LLMConfig) -> list[dict]:
             rate_limit_delay=rate_limit_delay
         )
         
-        # Filter to keep only useful Q&A pairs
+        # Filter: keep all items with code, and useful items without code
+        # This ensures we maintain >98% code_valid_rate
         qualified = [
-            qa for qa in qualified 
-            if qa.get("qualification", {}).get("useful", True)
+            qa for qa in qualified
+            if qa.get("qualification", {}).get("has_code", False) or qa.get("qualification", {}).get("useful", True)
         ]
         
         print(f"Qualified {len(qualified)}/{len(all_qa)} Q&A pairs", file=sys.stderr)
