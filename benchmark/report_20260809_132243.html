@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Benchmark Laravel LLM - laravel-coder</title>
+    <style>
+        :root {
+            --primary-color: #2563eb;
+            --success-color: #10b981;
+            --warning-color: #f59e0b;
+            --danger-color: #ef4444;
+            --bg-color: #f8fafc;
+            --card-bg: #ffffff;
+            --text-primary: #1e293b;
+            --text-secondary: #64748b;
+            --border-color: #e2e8f0;
+        }
+        
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            line-height: 1.6;
+            padding: 20px;
+        }
+        
+        .report-container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            margin-bottom: 24px;
+            border: 1px solid var(--border-color);
+        }
+        
+        .header h1 {
+            color: var(--text-primary);
+            font-size: 28px;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+        
+        .header-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            color: var(--text-secondary);
+            font-size: 14px;
+            margin-top: 15px;
+        }
+        
+        .header-meta span {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        
+        .section {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 28px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+            border: 1px solid var(--border-color);
+        }
+        
+        .section h2 {
+            font-size: 20px;
+            color: var(--text-primary);
+            margin-bottom: 20px;
+            padding-bottom: 12px;
+            border-bottom: 2px solid var(--primary-color);
+            font-weight: 600;
+        }
+        
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+        
+        .kpi-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 20px;
+            transition: box-shadow 0.2s;
+        }
+        
+        .kpi-card:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        
+        .kpi-card h3 {
+            font-size: 14px;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .kpi-card .value {
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--primary-color);
+            margin-bottom: 8px;
+        }
+        
+        .kpi-card .description {
+            font-size: 13px;
+            color: var(--text-secondary);
+            line-height: 1.5;
+            margin-bottom: 12px;
+        }
+        
+        .kpi-card .meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 12px;
+        }
+        
+        .kpi-card .target {
+            color: var(--text-secondary);
+        }
+        
+        .status {
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        
+        .status-good {
+            background: #dcfce7;
+            color: #166534;
+        }
+        
+        .status-bad {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 16px;
+            font-size: 14px;
+        }
+        
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        th {
+            background: var(--bg-color);
+            font-weight: 600;
+            color: var(--text-secondary);
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        tr:last-child td {
+            border-bottom: none;
+        }
+        
+        tr:hover {
+            background: var(--bg-color);
+        }
+        
+        .distribution-section {
+            margin-top: 20px;
+        }
+        
+        .distribution-section h3 {
+            font-size: 16px;
+            color: var(--text-primary);
+            margin-bottom: 12px;
+            font-weight: 600;
+        }
+        
+        .total-row {
+            font-weight: 600;
+        }
+        
+        .total-row td {
+            background: var(--bg-color);
+        }
+        
+        .comparison-section {
+            margin-top: 24px;
+        }
+        
+        .comparison-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 16px;
+        }
+        
+        .comparison-card {
+            background: var(--bg-color);
+            border-radius: 8px;
+            padding: 16px;
+            border: 1px solid var(--border-color);
+        }
+        
+        .comparison-card h4 {
+            font-size: 14px;
+            color: var(--text-primary);
+            margin-bottom: 12px;
+            font-weight: 600;
+        }
+        
+        .comparison-card .kpi-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 6px 0;
+            font-size: 13px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        .comparison-card .kpi-row:last-child {
+            border-bottom: none;
+        }
+        
+        .best-badge {
+            background: var(--primary-color);
+            color: white;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            display: inline-block;
+            margin-left: 8px;
+        }
+        
+        .latest-badge {
+            background: var(--success-color);
+            color: white;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            display: inline-block;
+            margin-left: 8px;
+        }
+        
+        @media (max-width: 768px) {
+            .kpi-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .header-meta {
+                flex-direction: column;
+                gap: 8px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="report-container">
+        <div class="header">
+            <h1>📊 Benchmark Laravel LLM</h1>
+            <p style="color: var(--text-secondary); margin-top: 8px; font-size: 15px;">
+                Évaluation des performances du modèle sur les données d'entraînement Laravel
+            </p>
+            <div class="header-meta">
+                <span>🔖 <strong>Modèle:</strong> laravel-coder</span>
+                <span>📅 <strong>Date:</strong> 2026-08-09</span>
+                <span>🏷️ <strong>Version Laravel:</strong> None</span>
+                <span>📊 <strong>Total Q&A:</strong> 558</span>
+                <span>⏱️ <strong>Temps:</strong> 0.34s</span>
+            </div>
+        </div>
+        
+        <div class="section">
+            <h2>🎯 Indicateurs Clés de Performance (KPI)</h2>
+            <div class="kpi-grid">
+                <div class="kpi-card">
+                    <h3>Taux de code valide</h3>
+                    <div class="value">50.36 %</div>
+                    <p class="description">Pourcentage de paires Q/R contenant du code PHP valide. Un taux élevé indique que le jeu de données est riche en exemples de code, essentiel pour l'entraînement d'un modèle spécialisé en développement Laravel.</p>
+                    <div class="meta">
+                        <span class="target">Cible: > 50%</span>
+                        <span class="status status-good">✓ OK</span>
+                    </div>
+                </div>
+                <div class="kpi-card">
+                    <h3>Couverture des topics</h3>
+                    <div class="value">100.00 %</div>
+                    <p class="description">Pourcentage des sujets Laravel définis dans la métadonnée qui sont couverts par les paires Q/R. Une couverture élevée garantit que le modèle sera formé sur tous les aspects du framework.</p>
+                    <div class="meta">
+                        <span class="target">Cible: > 95%</span>
+                        <span class="status status-good">✓ OK</span>
+                    </div>
+                </div>
+                <div class="kpi-card">
+                    <h3>Longueur moyenne des réponses</h3>
+                    <div class="value">109.74 tokens</div>
+                    <p class="description">Nombre moyen de tokens par réponse. Des réponses trop courtes peuvent manquer de contexte, tandis que des réponses trop longues peuvent contenir du bruit.</p>
+                    <div class="meta">
+                        <span class="target">Cible: 50-200</span>
+                        <span class="status status-good">✓ OK</span>
+                    </div>
+                </div>
+                <div class="kpi-card">
+                    <h3>Taux d'unicité</h3>
+                    <div class="value">99.28 %</div>
+                    <p class="description">Pourcentage de questions uniques. Un taux élevé indique une bonne diversité dans le jeu de données, évitant la redondance.</p>
+                    <div class="meta">
+                        <span class="target">Cible: > 95%</span>
+                        <span class="status status-good">✓ OK</span>
+                    </div>
+                </div>
+                <div class="kpi-card">
+                    <h3>Taux d'hallucination</h3>
+                    <div class="value">0.00 %</div>
+                    <p class="description">Pourcentage de réponses contenant des informations potentiellemenet incorrectes ou inexistantes. Un taux bas indique une bonne qualité des données.</p>
+                    <div class="meta">
+                        <span class="target">Cible: < 1%</span>
+                        <span class="status status-good">✓ OK</span>
+                    </div>
+                </div>
+                <div class="kpi-card">
+                    <h3>Score de qualité</h3>
+                    <div class="value">81.91 /100</div>
+                    <p class="description">Score composite basé sur les autres métriques (code valide 30%, longueur 20%, unicité 20%, base 30%). Reflète la qualité globale du jeu de données.</p>
+                    <div class="meta">
+                        <span class="target">Cible: > 60%</span>
+                        <span class="status status-good">✓ OK</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="section">
+            <h2>📊 Statistiques de Distribution</h2>
+            <div class="distribution-section">
+                <h3>📏 Longueur des réponses</h3>
+                <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 12px;">
+                    Répartition des paires Q/R par nombre de tokens dans la réponse.
+                </p>
+                <table>
+                    <tr><th>Catégorie</th><th>Nombre</th><th>Pourcentage</th></tr>
+                    <tr><td>short (<50 tokens)</td><td>41</td><td>7.3%</td></tr>
+                    <tr><td>medium (50-200 tokens)</td><td>511</td><td>91.6%</td></tr>
+                    <tr><td>long (>200 tokens)</td><td>6</td><td>1.1%</td></tr>
+                    <tr class="total-row"><td><strong>Total</strong></td><td><strong>558</strong></td><td><strong>100%</strong></td></tr>
+                </table>
+            </div>
+            <div class="distribution-section">
+                <h3>🎓 Niveaux de difficulté</h3>
+                <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 12px;">
+                    Répartition des paires Q/R par niveau de complexité.
+                </p>
+                <table>
+                    <tr><th>Niveau</th><th>Nombre</th><th>Pourcentage</th></tr>
+                    <tr><td>avancé</td><td>439</td><td>78.7%</td></tr>
+                    <tr><td>débutant</td><td>119</td><td>21.3%</td></tr>
+                    <tr class="total-row"><td><strong>Total</strong></td><td><strong>558</strong></td><td><strong>100%</strong></td></tr>
+                </table>
+            </div>
+            <div class="distribution-section">
+                <h3>🏷️ Top 15 des tags</h3>
+                <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 12px;">
+                    Tags les plus fréquents dans les qualifications des paires Q/R.
+                </p>
+                <table>
+                    <tr><th>Tag</th><th>Nombre</th><th>Pourcentage</th></tr>
+                    <tr><td>scopes</td><td>12</td><td>2.2%</td></tr>
+                    <tr><td>authentication</td><td>6</td><td>1.1%</td></tr>
+                    <tr><td>guards</td><td>6</td><td>1.1%</td></tr>
+                    <tr><td>providers</td><td>6</td><td>1.1%</td></tr>
+                    <tr><td>login</td><td>6</td><td>1.1%</td></tr>
+                    <tr><td>Artisan commands</td><td>6</td><td>1.1%</td></tr>
+                    <tr><td>scheduling</td><td>6</td><td>1.1%</td></tr>
+                    <tr><td>custom commands</td><td>6</td><td>1.1%</td></tr>
+                    <tr><td>authorization</td><td>6</td><td>1.1%</td></tr>
+                    <tr><td>gates</td><td>6</td><td>1.1%</td></tr>
+                    <tr><td>policies</td><td>6</td><td>1.1%</td></tr>
+                    <tr><td>can middleware</td><td>6</td><td>1.1%</td></tr>
+                    <tr><td>Blade templating</td><td>6</td><td>1.1%</td></tr>
+                    <tr><td>components</td><td>6</td><td>1.1%</td></tr>
+                    <tr><td>layouts</td><td>6</td><td>1.1%</td></tr>
+                </table>
+            </div>
+            <div class="distribution-section">
+                <h3>⚖️ Répartition par poids</h3>
+                <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 12px;">
+                    Poids attribués aux paires Q/R pour le fine-tuning (basé sur le niveau de difficulté).
+                </p>
+                <table>
+                    <tr><th>Poids</th><th>Nombre</th><th>Pourcentage</th></tr>
+                    <tr><td>1.0</td><td>119</td><td>21.3%</td></tr>
+                    <tr><td>2.0</td><td>439</td><td>78.7%</td></tr>
+                </table>
+            </div>
+            <div class="distribution-section">
+                <h3>⭐ Répartition par score composite</h3>
+                <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 12px;">
+                    Scores composites calculés pour chaque paire Q/R (poids × bonus code × bonus utilité).
+                </p>
+                <table>
+                    <tr><th>Plage de score</th><th>Nombre</th><th>Pourcentage</th></tr>
+                    <tr><td>0.0-1.5</td><td>119</td><td>21.3%</td></tr>
+                    <tr><td>1.5-2.0</td><td>0</td><td>0.0%</td></tr>
+                    <tr><td>>=2.0</td><td>439</td><td>78.7%</td></tr>
+                </table>
+            </div>
+        </div>
+    </div>
+    
+    <div style="text-align: center; margin-top: 30px; color: var(--text-secondary); font-size: 12px;">
+        Généré par Laravel LLM Benchmark | 2026-08-09 13:22:43
+    </div>
+</body>
+</html>
