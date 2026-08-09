@@ -76,7 +76,7 @@ jobs:
           OUTPUT_FILENAME="laravel-docs-$MODEL_NAME.modelfile"
 
           # Exécute le script de génération de modelfile
-          python3 ollama/generate_modelfile.py \
+          python3 ollama/main.py \
             --model "${{ github.event.inputs.model }}" \
             --data input.jsonl \
             --output "$OUTPUT_FILENAME"
