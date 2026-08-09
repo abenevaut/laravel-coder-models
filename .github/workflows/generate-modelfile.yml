@@ -23,7 +23,12 @@ on:
 jobs:
   generate-modelfile:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+
     steps:
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -41,12 +46,12 @@ jobs:
           # Si un fichier JSONL est fourni via une URL
           if [ -n "${{ github.event.inputs.jsonl_file }}" ]; then
             echo "Téléchargement du fichier JSONL depuis l'URL : ${{ github.event.inputs.jsonl_file }}"
-            wget -O input.jsonl "${{ github.event.inputs.jsonl_file }}"
+            wget -O laravel-docs-data/laravel_training.jsonl "${{ github.event.inputs.jsonl_file }}"
 
           # Si du contenu JSONL est collé directement
           elif [ -n "${{ github.event.inputs.jsonl_content }}" ]; then
             echo "Utilisation du contenu JSONL collé"
-            echo "${{ github.event.inputs.jsonl_content }}" > input.jsonl
+            echo "${{ github.event.inputs.jsonl_content }}" > laravel-docs-data/laravel_training.jsonl
 
           # Sinon, télécharge le fichier depuis la dernière release
           else
@@ -62,7 +67,7 @@ jobs:
 
             if [ -n "$ASSET_URL" ]; then
               echo "Téléchargement de laravel_training.jsonl depuis la release : $ASSET_URL"
-              wget -O input.jsonl "$ASSET_URL"
+              wget -O laravel-docs-data/laravel_training.jsonl "$ASSET_URL"
             else
               echo "Erreur : le fichier laravel_training.jsonl n'a pas été trouvé dans la dernière release."
               exit 1
@@ -78,7 +83,7 @@ jobs:
           # Exécute le script de génération de modelfile
           python3 ollama/main.py \
             --from "${{ github.event.inputs.model }}" \
-            --data input.jsonl \
+            --samples 100 \
             --output "$OUTPUT_FILENAME"
 
           # Affiche le contenu du fichier généré pour vérification
