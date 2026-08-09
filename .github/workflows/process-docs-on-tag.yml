@@ -10,6 +10,10 @@ jobs:
 
   process-docs:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+
     steps:
       - name: Install jq
         run: sudo apt-get install -y jq
@@ -25,18 +29,35 @@ jobs:
       - name: Run Benchmark
         run: python3 benchmark/main.py
 
-      - name: Upload files to release
+      - name: Create or get release
+        id: release
         run: |
+          # Tente de récupérer la release existante
           RELEASE_ID=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
             https://api.github.com/repos/${{ github.repository }}/releases/tags/${{ github.ref_name }} | jq -r '.id')
           
+          # Si la release n'existe pas ou est null, la crée
+          if [ -z "$RELEASE_ID" ] || [ "$RELEASE_ID" = "null" ]; then
+            RELEASE_ID=$(curl -s -X POST \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Accept: application/vnd.github.v3+json" \
+              -H "Content-Type: application/json" \
+              -d '{"tag_name":"${{ github.ref_name }}","name":"${{ github.ref_name }}","body":"Automated release created by GitHub Actions"}' \
+              https://api.github.com/repos/${{ github.repository }}/releases | jq -r '.id')
+          fi
+          
+          echo "RELEASE_ID=$RELEASE_ID" >> $GITHUB_OUTPUT
+
+      - name: Upload files to release
+        run: |
           # Upload des fichiers de laravel-docs-data/
           for FILE in laravel-docs-data/*; do
             [ -f "$FILE" ] && curl -s -X POST \
               -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
               -H "Content-Type: application/octet-stream" \
               --data-binary "@$FILE" \
-              "https://uploads.github.com/repos/${{ github.repository }}/releases/$RELEASE_ID/assets?name=$(basename $FILE)"
+              "https://uploads.github.com/repos/${{ github.repository }}/releases/${{ steps.release.outputs.RELEASE_ID }}/assets?name=$(basename $FILE)"
           done
           
           # Upload des fichiers du benchmark
@@ -45,7 +66,7 @@ jobs:
               -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
               -H "Content-Type: application/octet-stream" \
               --data-binary "@$FILE" \
-              "https://uploads.github.com/repos/${{ github.repository }}/releases/$RELEASE_ID/assets?name=$(basename $FILE)"
+              "https://uploads.github.com/repos/${{ github.repository }}/releases/${{ steps.release.outputs.RELEASE_ID }}/assets?name=$(basename $FILE)"
           done
 
       - name: Publish Benchmark Results and Overwatch to GitHub Pages
