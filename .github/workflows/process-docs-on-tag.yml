@@ -1,12 +1,13 @@
 name: Process Docs on Tag
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - laravel-docs-process-*
-  workflow_dispatch:
 
 jobs:
+
   process-docs:
     runs-on: ubuntu-latest
     steps:
@@ -21,10 +22,15 @@ jobs:
       - name: Run Laravel Docs Process
         run: python3 laravel-docs-process/main.py
 
+      - name: Run Benchmark
+        run: python3 benchmark/main.py
+
       - name: Upload files to release
         run: |
           RELEASE_ID=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             https://api.github.com/repos/${{ github.repository }}/releases/tags/${{ github.ref_name }} | jq -r '.id')
+
+          # Upload des fichiers de laravel-docs-data/
           for FILE in laravel-docs-data/*; do
             [ -f "$FILE" ] && curl -s -X POST \
               -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
@@ -32,3 +38,41 @@ jobs:
               --data-binary "@$FILE" \
               "https://uploads.github.com/repos/${{ github.repository }}/releases/$RELEASE_ID/assets?name=$(basename $FILE)"
           done
+
+          # Upload des fichiers du benchmark
+          for FILE in benchmark/results/* benchmark/reports/*; do
+            [ -f "$FILE" ] && curl -s -X POST \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary "@$FILE" \
+              "https://uploads.github.com/repos/${{ github.repository }}/releases/$RELEASE_ID/assets?name=$(basename $FILE)"
+          done
+
+      - name: Publish Benchmark Results to GitHub Pages
+        run: |
+          # Crée un dossier pour GitHub Pages
+          mkdir -p gh-pages/benchmark
+          cp -r benchmark/reports/* gh-pages/benchmark/
+
+          # Configure Git pour pousser vers gh-pages
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+
+          # Clone la branche gh-pages (ou l'initialise)
+          git clone --branch gh-pages https://${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git gh-pages-repo || {
+            git init gh-pages-repo
+            cd gh-pages-repo
+            git checkout --orphan gh-pages
+            git commit --allow-empty -m "Initial commit"
+            git push origin gh-pages
+            cd ..
+          }
+
+          # Copie les résultats dans gh-pages-repo
+          cp -r gh-pages/* gh-pages-repo/
+
+          # Push vers gh-pages
+          cd gh-pages-repo
+          git add .
+          git commit -m "Update benchmark results for ${{ github.ref_name }}"
+          git push origin gh-pages
