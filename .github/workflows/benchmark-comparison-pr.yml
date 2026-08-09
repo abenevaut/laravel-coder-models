@@ -50,7 +50,9 @@ jobs:
         id: new_benchmark
         run: |
           python3 benchmark/main.py --data-path laravel_training.jsonl > new_benchmark_results.json 2>&1
-          echo "new_benchmark_output=$(cat new_benchmark_results.json)" >> $GITHUB_OUTPUT
+          echo "new_benchmark_output<<EOF" >> $GITHUB_OUTPUT
+          cat new_benchmark_results.json >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Compare Benchmark Results
         id: compare
@@ -90,9 +92,13 @@ jobs:
               fi
             done
 
-            echo "comparison_output=$COMPARISON_OUTPUT" >> $GITHUB_OUTPUT
+            echo "comparison_output<<EOF" >> $GITHUB_OUTPUT
+            echo "$COMPARISON_OUTPUT" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
           else
-            echo "comparison_output=Aucune comparaison possible (pas de résultats de benchmark dans la dernière release)." >> $GITHUB_OUTPUT
+            echo "comparison_output<<EOF" >> $GITHUB_OUTPUT
+            echo "Aucune comparaison possible (pas de résultats de benchmark dans la dernière release)." >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
           fi
 
       - name: Upload New Benchmark Results as Artifacts
