@@ -9,6 +9,10 @@ on:
 jobs:
   compare-benchmark:
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      issues: write
+      contents: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -29,7 +33,7 @@ jobs:
             -H "Accept: application/vnd.github.v3+json" \
             https://api.github.com/repos/${{ github.repository }}/releases/latest)
 
-          # Télécharge laravel_training.jsonl
+          # Télécharge laravel_training.jsonl depuis la dernière release
           ASSET_URL=$(echo "$LATEST_RELEASE" | jq -r '.assets[] | select(.name == "laravel_training.jsonl") | .browser_download_url')
           if [ -n "$ASSET_URL" ]; then
             wget -O laravel_training.jsonl "$ASSET_URL"
@@ -38,8 +42,8 @@ jobs:
             exit 1
           fi
 
-          # Télécharge les résultats du benchmark de la dernière release
-          BENCHMARK_ASSET_URL=$(echo "$LATEST_RELEASE" | jq -r '.assets[] | select(.name | test("benchmark_results.*\\.json$")) | .browser_download_url' | head -n 1)
+          # Télécharge les résultats du benchmark de la dernière release pour comparaison
+          BENCHMARK_ASSET_URL=$(echo "$LATEST_RELEASE" | jq -r '.assets[] | select(.name | test("benchmark_.*\\.json$")) | .browser_download_url' | head -n 1)
           if [ -n "$BENCHMARK_ASSET_URL" ]; then
             wget -O old_benchmark_results.json "$BENCHMARK_ASSET_URL"
           else
@@ -49,29 +53,33 @@ jobs:
       - name: Run New Benchmark
         id: new_benchmark
         run: |
-          python3 benchmark/main.py --data-path laravel_training.jsonl > new_benchmark_results.json 2>&1
-          echo "new_benchmark_output=$(cat new_benchmark_results.json)" >> $GITHUB_OUTPUT
+          BENCHMARK_OUTPUT=$(python3 benchmark/main.py --data-path laravel_training.jsonl 2>&1)
+          NEW_BENCHMARK_JSON=$(ls benchmark/results/benchmark_laravel-coder_*.json | head -n 1)
+          echo "new_benchmark_output<<EOF" >> $GITHUB_OUTPUT
+          echo "$BENCHMARK_OUTPUT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          echo "new_benchmark_path=$NEW_BENCHMARK_JSON" >> $GITHUB_OUTPUT
 
       - name: Compare Benchmark Results
         id: compare
         run: |
-          if [ -f "old_benchmark_results.json" ]; then
+          if [ -f "old_benchmark_results.json" ] && [ -n "${{ steps.new_benchmark.outputs.new_benchmark_path }}" ]; then
             echo "Comparaison des résultats du benchmark :"
             echo "----------------------------------------"
 
-            # Extrait les métriques des deux fichiers
+            # Utilise les vrais fichiers JSON
             OLD_METRICS=$(jq '.' old_benchmark_results.json)
-            NEW_METRICS=$(jq '.' new_benchmark_results.json)
+            NEW_METRICS=$(jq '.' "${{ steps.new_benchmark.outputs.new_benchmark_path }}")
 
             # Initialise la variable pour stocker les résultats de la comparaison
             COMPARISON_OUTPUT=""
 
-            # Liste des métriques à comparer (à adapter selon ton benchmark)
-            METRICS=("valid_code_rate" "hallucination_rate" "topic_coverage_rate" "response_accuracy")
+            # Liste des métriques à comparer (corrigées pour matcher la structure JSON réelle)
+            METRICS=("code_valid_rate" "hallucination_rate" "topic_coverage_rate" "quality_score" "avg_response_length" "uniqueness_rate")
 
             for METRIC in "${METRICS[@]}"; do
-              OLD_VALUE=$(echo "$OLD_METRICS" | jq -r ".${METRIC} // \"N/A\"")
-              NEW_VALUE=$(echo "$NEW_METRICS" | jq -r ".${METRIC} // \"N/A\"")
+              OLD_VALUE=$(echo "$OLD_METRICS" | jq -r ".kpis.${METRIC} // \"N/A\"")
+              NEW_VALUE=$(echo "$NEW_METRICS" | jq -r ".kpis.${METRIC} // \"N/A\"")
 
               if [ "$OLD_VALUE" != "N/A" ] && [ "$NEW_VALUE" != "N/A" ]; then
                 # Calcule la différence
@@ -90,9 +98,13 @@ jobs:
               fi
             done
 
-            echo "comparison_output=$COMPARISON_OUTPUT" >> $GITHUB_OUTPUT
+            echo "comparison_output<<EOF" >> $GITHUB_OUTPUT
+            echo "$COMPARISON_OUTPUT" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
           else
-            echo "comparison_output=Aucune comparaison possible (pas de résultats de benchmark dans la dernière release)." >> $GITHUB_OUTPUT
+            echo "comparison_output<<EOF" >> $GITHUB_OUTPUT
+            echo "Aucune comparaison possible (pas de résultats de benchmark dans la release précédente)." >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
           fi
 
       - name: Upload New Benchmark Results as Artifacts

@@ -49,8 +49,8 @@ def generate_html_report(results: list[dict], output_path: Optional[str] = None)
             'title': 'Taux de code valide',
             'description': 'Pourcentage de paires Q/R contenant du code PHP valide. Un taux élevé indique que le jeu de données est riche en exemples de code, essentiel pour l\'entraînement d\'un modèle spécialisé en développement Laravel.',
             'unit': '%',
-            'target': '> 50%',
-            'target_min': 50
+            'target': '> 80%',
+            'target_min': 80
         },
         'topic_coverage_rate': {
             'title': 'Couverture des topics',

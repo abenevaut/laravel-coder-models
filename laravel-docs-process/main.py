@@ -168,12 +168,17 @@ def main():
                 "useful": True,
                 "tags": [],
                 "level": determine_level_heuristic(qa),
-                "has_code": False
+                "has_code": False,
+                "has_valid_code": False
             }
         
         # Sync has_code from top-level to qualification if present
         if "has_code" in qa:
             qa["qualification"]["has_code"] = qa["has_code"]
+        
+        # Sync has_valid_code from top-level to qualification if present
+        if "has_valid_code" in qa:
+            qa["qualification"]["has_valid_code"] = qa["has_valid_code"]
         
         # Add subtopics as tags to qualification for topic coverage calculation
         if "subtopics" in qa:
@@ -192,9 +197,10 @@ def main():
             qa["weight"] = level_weights.get(level, 1.0)
         
         # Calculate a composite score for filtering/sorting
-        # Score formula: weight * (1 + has_code_bonus + useful_bonus)
+        # Score formula: weight * (1 + has_code_bonus + useful_bonus + valid_code_bonus)
         qual = qa.get("qualification", {})
         has_code = qual.get("has_code", False)
+        has_valid_code = qual.get("has_valid_code", False)
         useful = qual.get("useful", True)
         weight = qa.get("weight", 1.0)
         
@@ -202,6 +208,8 @@ def main():
         score = weight
         if has_code:
             score *= 1.3  # 30% bonus for code
+        if has_valid_code:
+            score *= 1.2  # Additional 20% bonus for valid code
         if useful:
             score *= 1.1  # 10% bonus for being useful
         
@@ -234,11 +242,15 @@ def main():
         # Calculate statistics
         useful_count = sum(1 for qa in all_qa if qa.get("qualification", {}).get("useful", True))
         has_code_count = sum(1 for qa in all_qa if qa.get("qualification", {}).get("has_code", False))
+        has_valid_code_count = sum(1 for qa in all_qa if qa.get("qualification", {}).get("has_valid_code", False))
         total_weight = sum(qa.get("weight", 1.0) for qa in all_qa)
         
         # Calculate KPIs for training data quality
         total_with_code = has_code_count
-        valid_code_rate = (total_with_code / len(all_qa) * 100) if all_qa else 0.0
+        # NEW: valid_code_rate now measures code that is both present AND syntactically valid
+        valid_code_rate = (has_valid_code_count / len(all_qa) * 100) if all_qa else 0.0
+        # Keep the old rate as code_present_rate for reference
+        code_present_rate = (has_code_count / len(all_qa) * 100) if all_qa else 0.0
         
         # Average response length
         total_output_length = sum(len(qa.get("output", "").split()) for qa in all_qa)
@@ -295,6 +307,7 @@ def main():
             },
             "kpis": {
                 "valid_code_rate": round(valid_code_rate, 2),
+                "code_present_rate": round(code_present_rate, 2),
                 "target_valid_code_rate": "> 98%",
                 "avg_response_length_tokens": round(avg_response_length, 2),
                 "target_avg_length": "50-200 tokens",
@@ -314,6 +327,7 @@ def main():
         if llm_config.enabled:
             meta["useful_qa_count"] = useful_count
             meta["has_code_count"] = has_code_count
+            meta["has_valid_code_count"] = has_valid_code_count
             
             # Count by level
             level_counts = {}
