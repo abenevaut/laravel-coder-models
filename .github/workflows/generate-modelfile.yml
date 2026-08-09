@@ -64,13 +64,22 @@ jobs:
               https://api.github.com/repos/${{ github.repository }}/releases/latest)
 
             # Extrait l'URL du fichier laravel_training.jsonl depuis les assets de la release
-            ASSET_URL=$(echo "$LATEST_RELEASE" | jq -r '.assets[] | select(.name == "laravel_training.jsonl") | .browser_download_url')
+            TRAINING_URL=$(echo "$LATEST_RELEASE" | jq -r '.assets[] | select(.name == "laravel_training.jsonl") | .browser_download_url')
+            META_URL=$(echo "$LATEST_RELEASE" | jq -r '.assets[] | select(.name == "meta.json") | .browser_download_url')
 
-            if [ -n "$ASSET_URL" ]; then
-              echo "Téléchargement de laravel_training.jsonl depuis la release : $ASSET_URL"
-              wget -O laravel-docs-data/laravel_training.jsonl "$ASSET_URL"
+            if [ -n "$TRAINING_URL" ]; then
+              echo "Téléchargement de laravel_training.jsonl depuis la release : $TRAINING_URL"
+              wget -O laravel-docs-data/laravel_training.jsonl "$TRAINING_URL"
             else
               echo "Erreur : le fichier laravel_training.jsonl n'a pas été trouvé dans la dernière release."
+              exit 1
+            fi
+
+            if [ -n "$META_URL" ]; then
+              echo "Téléchargement de meta.json depuis la release : $META_URL"
+              wget -O laravel-docs-data/meta.json "$META_URL"
+            else
+              echo "Erreur : le fichier meta.json n'a pas été trouvé dans la dernière release."
               exit 1
             fi
           fi
