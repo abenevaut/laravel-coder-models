@@ -31,6 +31,7 @@ jobs:
 
       - name: Run Benchmark
         id: benchmark
+        shell: bash
         run: |
           # Exécute le benchmark sur les données générées
           python3 benchmark/main.py --data-path laravel-docs-data/laravel_training.jsonl > benchmark_results.txt 2>&1
