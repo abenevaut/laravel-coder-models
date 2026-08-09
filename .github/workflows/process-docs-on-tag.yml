@@ -77,7 +77,26 @@ jobs:
           
           # Ajoute le script Overwatch
           mkdir -p gh-pages/overwatch
-          cp overwatch/qualify_data.html gh-pages/overwatch/
+          cp overwatch/index.html gh-pages/overwatch/
+
+          # Génère l'index principal avec lien Overwatch et liste des benchmarks
+          {
+            echo '<!DOCTYPE html>'
+            echo '<html>'
+            echo '<head><title>Benchmarks & Overwatch</title></head>'
+            echo '<body>'
+            echo '<h1>Rapports</h1>'
+            echo '<h2><a href="overwatch/index.html">Overwatch</a></h2>'
+            echo '<h2>Benchmark Reports</h2>'
+            echo '<ul>'
+            for file in $(ls -t gh-pages/benchmark/*.html 2>/dev/null); do
+              filename=$(basename "$file")
+              echo "<li><a href=\"benchmark/$filename\">$filename</a></li>"
+            done
+            echo '</ul>'
+            echo '</body>'
+            echo '</html>'
+          } > gh-pages/index.html
           
           # Configure Git pour pousser vers gh-pages
           git config --global user.name "GitHub Actions"
