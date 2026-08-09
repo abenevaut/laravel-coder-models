@@ -33,7 +33,7 @@ jobs:
             -H "Accept: application/vnd.github.v3+json" \
             https://api.github.com/repos/${{ github.repository }}/releases/latest)
 
-          # Télécharge laravel_training.jsonl
+          # Télécharge laravel_training.jsonl depuis la dernière release
           ASSET_URL=$(echo "$LATEST_RELEASE" | jq -r '.assets[] | select(.name == "laravel_training.jsonl") | .browser_download_url')
           if [ -n "$ASSET_URL" ]; then
             wget -O laravel_training.jsonl "$ASSET_URL"
@@ -42,7 +42,7 @@ jobs:
             exit 1
           fi
 
-          # Télécharge les résultats du benchmark de la dernière release
+          # Télécharge les résultats du benchmark de la dernière release pour comparaison
           BENCHMARK_ASSET_URL=$(echo "$LATEST_RELEASE" | jq -r '.assets[] | select(.name | test("benchmark_.*\\.json$")) | .browser_download_url' | head -n 1)
           if [ -n "$BENCHMARK_ASSET_URL" ]; then
             wget -O old_benchmark_results.json "$BENCHMARK_ASSET_URL"
@@ -103,7 +103,7 @@ jobs:
             echo "EOF" >> $GITHUB_OUTPUT
           else
             echo "comparison_output<<EOF" >> $GITHUB_OUTPUT
-            echo "Aucune comparaison possible (pas de résultats de benchmark dans la dernière release)." >> $GITHUB_OUTPUT
+            echo "Aucune comparaison possible (pas de résultats de benchmark dans la release précédente)." >> $GITHUB_OUTPUT
             echo "EOF" >> $GITHUB_OUTPUT
           fi
 
