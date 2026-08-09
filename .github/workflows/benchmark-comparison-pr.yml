@@ -43,7 +43,7 @@ jobs:
           fi
 
           # Télécharge les résultats du benchmark de la dernière release
-          BENCHMARK_ASSET_URL=$(echo "$LATEST_RELEASE" | jq -r '.assets[] | select(.name | test("benchmark_results.*\\.json$")) | .browser_download_url' | head -n 1)
+          BENCHMARK_ASSET_URL=$(echo "$LATEST_RELEASE" | jq -r '.assets[] | select(.name | test("benchmark_.*\\.json$")) | .browser_download_url' | head -n 1)
           if [ -n "$BENCHMARK_ASSET_URL" ]; then
             wget -O old_benchmark_results.json "$BENCHMARK_ASSET_URL"
           else
@@ -53,31 +53,33 @@ jobs:
       - name: Run New Benchmark
         id: new_benchmark
         run: |
-          python3 benchmark/main.py --data-path laravel_training.jsonl > new_benchmark_results.json 2>&1
+          BENCHMARK_OUTPUT=$(python3 benchmark/main.py --data-path laravel_training.jsonl 2>&1)
+          NEW_BENCHMARK_JSON=$(ls benchmark/results/benchmark_laravel-coder_*.json | head -n 1)
           echo "new_benchmark_output<<EOF" >> $GITHUB_OUTPUT
-          cat new_benchmark_results.json >> $GITHUB_OUTPUT
+          echo "$BENCHMARK_OUTPUT" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
+          echo "new_benchmark_path=$NEW_BENCHMARK_JSON" >> $GITHUB_OUTPUT
 
       - name: Compare Benchmark Results
         id: compare
         run: |
-          if [ -f "old_benchmark_results.json" ]; then
+          if [ -f "old_benchmark_results.json" ] && [ -n "${{ steps.new_benchmark.outputs.new_benchmark_path }}" ]; then
             echo "Comparaison des résultats du benchmark :"
             echo "----------------------------------------"
 
-            # Extrait les métriques des deux fichiers
+            # Utilise les vrais fichiers JSON
             OLD_METRICS=$(jq '.' old_benchmark_results.json)
-            NEW_METRICS=$(jq '.' new_benchmark_results.json)
+            NEW_METRICS=$(jq '.' "${{ steps.new_benchmark.outputs.new_benchmark_path }}")
 
             # Initialise la variable pour stocker les résultats de la comparaison
             COMPARISON_OUTPUT=""
 
-            # Liste des métriques à comparer (à adapter selon ton benchmark)
-            METRICS=("valid_code_rate" "hallucination_rate" "topic_coverage_rate" "response_accuracy")
+            # Liste des métriques à comparer (corrigées pour matcher la structure JSON réelle)
+            METRICS=("code_valid_rate" "hallucination_rate" "topic_coverage_rate" "quality_score" "avg_response_length" "uniqueness_rate")
 
             for METRIC in "${METRICS[@]}"; do
-              OLD_VALUE=$(echo "$OLD_METRICS" | jq -r ".${METRIC} // \"N/A\"")
-              NEW_VALUE=$(echo "$NEW_METRICS" | jq -r ".${METRIC} // \"N/A\"")
+              OLD_VALUE=$(echo "$OLD_METRICS" | jq -r ".kpis.${METRIC} // \"N/A\"")
+              NEW_VALUE=$(echo "$NEW_METRICS" | jq -r ".kpis.${METRIC} // \"N/A\"")
 
               if [ "$OLD_VALUE" != "N/A" ] && [ "$NEW_VALUE" != "N/A" ]; then
                 # Calcule la différence
