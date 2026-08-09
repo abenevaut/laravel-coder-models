@@ -37,7 +37,7 @@ jobs:
           echo "benchmark_output=$(cat benchmark_results.txt)" >> $GITHUB_OUTPUT
 
       - name: Upload Benchmark Results as Artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v7
         with:
           name: benchmark-results
           path: |

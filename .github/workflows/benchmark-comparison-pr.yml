@@ -96,7 +96,7 @@ jobs:
           fi
 
       - name: Upload New Benchmark Results as Artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v7
         with:
           name: new-benchmark-results
           path: |

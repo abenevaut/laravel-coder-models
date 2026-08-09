@@ -63,7 +63,7 @@ jobs:
         run: python3 benchmark/main.py --data-path input.jsonl
 
       - name: Upload Benchmark Results as Artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v7
         with:
           name: benchmark-results
           path: |
