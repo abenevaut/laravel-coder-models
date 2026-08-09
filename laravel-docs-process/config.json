@@ -3,6 +3,7 @@
     "clean_content",
     "detect_version",
     "extract_sections",
+    "validate_code",
     "generate_qa"
   ]
 }
