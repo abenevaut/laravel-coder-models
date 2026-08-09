@@ -104,5 +104,5 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: modelfile
-          path: laravel-docs-*.modelfile
+          path: ollama/laravel-docs-*.modelfile
           retention-days: 7
