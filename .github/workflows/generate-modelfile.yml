@@ -43,6 +43,7 @@ jobs:
 
       - name: Prepare JSONL file
         run: |
+          mkdir -p laravel-docs-data
           # Si un fichier JSONL est fourni via une URL
           if [ -n "${{ github.event.inputs.jsonl_file }}" ]; then
             echo "Téléchargement du fichier JSONL depuis l'URL : ${{ github.event.inputs.jsonl_file }}"
