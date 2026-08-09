@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
 
   #
@@ -10,10 +8,8 @@ services:
     volumes:
       - ./laravel-docs:/app/laravel-docs
       - ./laravel-docs-data:/app/laravel-docs-data
-      - ./.env:/app/.env:ro  # Monte le fichier .env en lecture seule
+      - ./.env:/app/.env:ro
     environment:
       - LLM_ENABLED=${LLM_ENABLED:-false}
       - LLM_API_KEY=${LLM_API_KEY:-}
       - LLM_API_URL=${LLM_API_URL:-}
-    # Commande par défaut (peut être écrasée)
-    command: python3 laravel-docs-process/main.py --llm

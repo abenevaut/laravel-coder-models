@@ -1,0 +1,34 @@
+name: Process Docs on Tag
+
+on:
+  push:
+    tags:
+      - laravel-docs-process-*
+  workflow_dispatch:
+
+jobs:
+  process-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install jq
+        run: sudo apt-get install -y jq
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Run Laravel Docs Process
+        run: python3 laravel-docs-process/main.py
+
+      - name: Upload files to release
+        run: |
+          RELEASE_ID=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            https://api.github.com/repos/${{ github.repository }}/releases/tags/${{ github.ref_name }} | jq -r '.id')
+          for FILE in laravel-docs-data/*; do
+            [ -f "$FILE" ] && curl -s -X POST \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary "@$FILE" \
+              "https://uploads.github.com/repos/${{ github.repository }}/releases/$RELEASE_ID/assets?name=$(basename $FILE)"
+          done

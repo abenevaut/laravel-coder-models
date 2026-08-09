@@ -67,4 +67,3 @@ VOLUME ["/app/laravel-docs", "/app/laravel-docs-data"]
 
 # Point d'entrée
 ENTRYPOINT ["python3", "laravel-docs-process/main.py"]
-#CMD ["--llm"]
