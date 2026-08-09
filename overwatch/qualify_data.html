@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Qualification des données d'entraînement</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            line-height: 1.6;
+        }
+        h1, h2 {
+            color: #333;
+        }
+        .form-container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .filters {
+            background-color: #f0f0f0;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            align-items: center;
+        }
+        .filter-group {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .qa-item {
+            border: 1px solid #ddd;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+            background-color: #f9f9f9;
+        }
+        .qa-item.hidden {
+            display: none;
+        }
+        .qa-item textarea {
+            width: 100%;
+            height: 100px;
+            margin-bottom: 10px;
+            font-family: monospace;
+        }
+        .qa-item select, .qa-item input[type="checkbox"], .qa-item input[type="text"] {
+            margin-right: 10px;
+        }
+        .qa-item label {
+            display: inline-block;
+            margin-right: 15px;
+        }
+        .actions {
+            margin-top: 20px;
+            text-align: center;
+        }
+        button {
+            padding: 10px 20px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        #fileInput, #saveFilename {
+            margin-bottom: 20px;
+            padding: 8px;
+        }
+        #saveFilename {
+            width: 300px;
+        }
+        .metadata {
+            margin-bottom: 10px;
+            font-style: italic;
+            color: #666;
+        }
+        .stats {
+            margin-bottom: 20px;
+            font-size: 14px;
+            color: #555;
+        }
+        select, input[type="text"] {
+            padding: 5px;
+        }
+    </style>
+</head>
+<body>
+<h1>Qualification des données d'entraînement</h1>
+
+<div class="form-container">
+    <div>
+        <label for="fileInput">Sélectionnez le fichier JSONL :</label>
+        <input type="file" id="fileInput" accept=".jsonl" />
+    </div>
+
+    <div>
+        <label for="saveFilename">Nom du fichier de sortie :</label>
+        <input type="text" id="saveFilename" value="laravel_training_qualified.jsonl" />
+    </div>
+
+    <div class="filters">
+        <div class="filter-group">
+            <label for="filterUseful">Pertinence:</label>
+            <select id="filterUseful">
+                <option value="all">Tous</option>
+                <option value="true">Pertinents</option>
+                <option value="false">Non pertinents</option>
+            </select>
+        </div>
+
+        <div class="filter-group">
+            <label for="filterLevel">Niveau:</label>
+            <select id="filterLevel">
+                <option value="all">Tous</option>
+                <option value="débutant">Débutant</option>
+                <option value="intermédiaire">Intermédiaire</option>
+                <option value="avancé">Avancé</option>
+            </select>
+        </div>
+
+        <div class="filter-group">
+            <label for="filterHasCode">Code:</label>
+            <select id="filterHasCode">
+                <option value="all">Tous</option>
+                <option value="true">Avec code</option>
+                <option value="false">Sans code</option>
+            </select>
+        </div>
+
+        <div class="filter-group">
+            <label for="filterTopic">Topic:</label>
+            <select id="filterTopic">
+                <option value="all">Tous</option>
+            </select>
+        </div>
+
+        <div class="filter-group">
+            <label for="searchText">Recherche:</label>
+            <input type="text" id="searchText" placeholder="Rechercher dans Q/R..." />
+        </div>
+
+        <button id="resetFilters">Réinitialiser</button>
+    </div>
+
+    <div class="stats" id="stats"></div>
+
+    <div id="qaContainer"></div>
+
+    <div class="actions">
+        <button id="saveButton">Enregistrer le fichier qualifié</button>
+    </div>
+</div>
+
+<script>
+    let qaData = [];
+    let allTopics = new Set();
+
+    // Charge le fichier JSONL
+    document.getElementById('fileInput').addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const content = e.target.result;
+            qaData = parseJSONL(content);
+            extractTopics();
+            displayQAForm(qaData);
+            updateStats();
+        };
+        reader.readAsText(file);
+    });
+
+    // Extrait tous les topics uniques
+    function extractTopics() {
+        allTopics.clear();
+        allTopics.add("Tous");
+        qaData.forEach(item => {
+            if (item.topic) allTopics.add(item.topic);
+            if (item.subtopics) {
+                item.subtopics.forEach(subtopic => allTopics.add(subtopic));
+            }
+        });
+        updateTopicFilter();
+    }
+
+    // Met à jour le filtre des topics
+    function updateTopicFilter() {
+        const topicFilter = document.getElementById('filterTopic');
+        topicFilter.innerHTML = '<option value="all">Tous</option>';
+        allTopics.forEach(topic => {
+            if (topic !== "Tous") {
+                const option = document.createElement('option');
+                option.value = topic;
+                option.textContent = topic;
+                topicFilter.appendChild(option);
+            }
+        });
+    }
+
+    // Parse le contenu JSONL
+    function parseJSONL(content) {
+        const lines = content.split('\n');
+        return lines
+            .filter(line => line.trim() !== '')
+            .map(line => JSON.parse(line));
+    }
+
+    // Affiche le formulaire pour chaque Q&A
+    function displayQAForm(data) {
+        const container = document.getElementById('qaContainer');
+        container.innerHTML = '';
+
+        data.forEach((item, index) => {
+            const qaItem = document.createElement('div');
+            qaItem.className = 'qa-item';
+            qaItem.dataset.index = index;
+
+            const qualification = item.qualification || {};
+            const useful = qualification.useful !== undefined ? qualification.useful : true;
+            const level = qualification.level || 'intermédiaire';
+            const tags = qualification.tags ? qualification.tags.join(', ') : '';
+            const hasCode = qualification.has_code !== undefined ? qualification.has_code : false;
+
+            qaItem.innerHTML = `
+                    <div class="metadata">
+                        <strong>Topic:</strong> ${item.topic || 'Non défini'} |
+                        <strong>Subtopics:</strong> ${item.subtopics ? item.subtopics.join(', ') : 'Aucun'}
+                    </div>
+                    <div>
+                        <label><strong>Question:</strong></label>
+                        <textarea readonly>${escapeHtml(item.instruction || 'Non définie')}</textarea>
+                    </div>
+                    <div>
+                        <label><strong>Réponse:</strong></label>
+                        <textarea readonly>${escapeHtml(item.output || 'Non définie')}</textarea>
+                    </div>
+                    <div>
+                        <label>Pertinent:</label>
+                        <input type="checkbox" name="useful_${index}" ${useful ? 'checked' : ''} />
+
+                        <label>Niveau:</label>
+                        <select name="level_${index}">
+                            <option value="débutant" ${level === 'débutant' ? 'selected' : ''}>Débutant</option>
+                            <option value="intermédiaire" ${level === 'intermédiaire' ? 'selected' : ''}>Intermédiaire</option>
+                            <option value="avancé" ${level === 'avancé' ? 'selected' : ''}>Avancé</option>
+                        </select>
+
+                        <label>Contient du code:</label>
+                        <input type="checkbox" name="has_code_${index}" ${hasCode ? 'checked' : ''} />
+                    </div>
+                    <div>
+                        <label>Tags (séparés par des virgules):</label>
+                        <input type="text" name="tags_${index}" value="${tags}" />
+                    </div>
+                `;
+            container.appendChild(qaItem);
+        });
+
+        // Ajoute les écouteurs d'événements pour les filtres
+        setupFilterListeners();
+    }
+
+    // Échappe les caractères HTML pour éviter les problèmes d'affichage
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    // Configure les écouteurs pour les filtres
+    function setupFilterListeners() {
+        const filters = {
+            useful: document.getElementById('filterUseful'),
+            level: document.getElementById('filterLevel'),
+            hasCode: document.getElementById('filterHasCode'),
+            topic: document.getElementById('filterTopic'),
+            search: document.getElementById('searchText')
+        };
+
+        Object.values(filters).forEach(filter => {
+            filter.addEventListener('input', applyFilters);
+            filter.addEventListener('change', applyFilters);
+        });
+
+        document.getElementById('resetFilters').addEventListener('click', () => {
+            filters.useful.value = 'all';
+            filters.level.value = 'all';
+            filters.hasCode.value = 'all';
+            filters.topic.value = 'all';
+            filters.search.value = '';
+            applyFilters();
+        });
+    }
+
+    // Applique les filtres
+    function applyFilters() {
+        const usefulFilter = document.getElementById('filterUseful').value;
+        const levelFilter = document.getElementById('filterLevel').value;
+        const hasCodeFilter = document.getElementById('filterHasCode').value;
+        const topicFilter = document.getElementById('filterTopic').value;
+        const searchText = document.getElementById('searchText').value.toLowerCase();
+
+        const qaItems = document.querySelectorAll('.qa-item');
+        let visibleCount = 0;
+
+        qaItems.forEach((item, index) => {
+            const data = qaData[index];
+            const qualification = data.qualification || {};
+            const useful = qualification.useful !== undefined ? qualification.useful : true;
+            const level = qualification.level || 'intermédiaire';
+            const hasCode = qualification.has_code !== undefined ? qualification.has_code : false;
+            const topic = data.topic || '';
+            const subtopics = data.subtopics || [];
+            const instruction = (data.instruction || '').toLowerCase();
+            const output = (data.output || '').toLowerCase();
+
+            // Vérifie les filtres
+            let shouldShow = true;
+
+            if (usefulFilter !== 'all' && useful.toString() !== usefulFilter) shouldShow = false;
+            if (levelFilter !== 'all' && level !== levelFilter) shouldShow = false;
+            if (hasCodeFilter !== 'all' && hasCode.toString() !== hasCodeFilter) shouldShow = false;
+            if (topicFilter !== 'all' && !topic.includes(topicFilter) && !subtopics.includes(topicFilter)) shouldShow = false;
+            if (searchText && !instruction.includes(searchText) && !output.includes(searchText)) shouldShow = false;
+
+            item.classList.toggle('hidden', !shouldShow);
+            if (shouldShow) visibleCount++;
+        });
+
+        updateStats(visibleCount);
+    }
+
+    // Met à jour les statistiques
+    function updateStats(visibleCount = qaData.length) {
+        const statsDiv = document.getElementById('stats');
+        statsDiv.textContent = `Affichage de ${visibleCount} Q&A sur ${qaData.length} au total.`;
+    }
+
+    // Enregistre le fichier qualifié
+    document.getElementById('saveButton').addEventListener('click', function() {
+        const filename = document.getElementById('saveFilename').value;
+        if (!filename) {
+            alert('Veuillez spécifier un nom de fichier.');
+            return;
+        }
+
+        const updatedData = qaData.map((item, index) => {
+            const useful = document.querySelector(`input[name="useful_${index}"]`).checked;
+            const level = document.querySelector(`select[name="level_${index}"]`).value;
+            const hasCode = document.querySelector(`input[name="has_code_${index}"]`).checked;
+            const tags = document.querySelector(`input[name="tags_${index}"]`).value
+                .split(',')
+                .map(tag => tag.trim())
+                .filter(tag => tag !== '');
+
+            return {
+                ...item,
+                qualification: {
+                    useful,
+                    level,
+                    has_code: hasCode,
+                    tags
+                }
+            };
+        });
+
+        const jsonlContent = updatedData.map(item => JSON.stringify(item)).join('\n');
+        const blob = new Blob([jsonlContent], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        alert(`Fichier "${filename}" enregistré avec succès !`);
+    });
+</script>
+</body>
+</html>

@@ -1,0 +1,95 @@
+name: Benchmark on PR for laravel-docs-process
+
+on:
+  pull_request:
+    paths:
+      - 'laravel-docs-process/**'
+    types: [opened, synchronize, reopened]
+
+jobs:
+  generate-and-benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          submodules: recursive
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Generate Training Data
+        run: |
+          # Exécute laravel-docs-process pour générer les données
+          python3 laravel-docs-process/main.py
+          # Vérifie que le fichier a bien été généré
+          if [ ! -f "laravel-docs-data/laravel_training.jsonl" ]; then
+            echo "Erreur : Le fichier laravel_training.jsonl n'a pas été généré."
+            exit 1
+          fi
+
+      - name: Run Benchmark
+        id: benchmark
+        run: |
+          # Exécute le benchmark sur les données générées
+          python3 benchmark/main.py --data-path laravel-docs-data/laravel_training.jsonl > benchmark_results.txt 2>&1
+          echo "benchmark_output=$(cat benchmark_results.txt)" >> $GITHUB_OUTPUT
+
+      - name: Upload Benchmark Results as Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: benchmark-results
+          path: |
+            benchmark/results/
+            benchmark/reports/
+          retention-days: 7
+
+      - name: Post Benchmark Results as PR Comment
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            // Vérifie si un commentaire du bot existe déjà
+            const botComment = comments.find(comment => comment.user.login === 'github-actions[bot]' && comment.body.includes('### 📊 Résultats du Benchmark'));
+
+            const benchmarkOutput = `${{ steps.benchmark.outputs.benchmark_output }}`;
+
+            const commentBody = `
+            ### 📊 Résultats du Benchmark
+
+            **Données générées par** : \`laravel-docs-process/main.py\`
+            **Fichier utilisé** : \`laravel-docs-data/laravel_training.jsonl\`
+
+            \`\`\`
+            ${benchmarkOutput}
+            \`\`\`
+
+            **Artifacts** : [Télécharger les résultats du benchmark](${process.env.GITHUB_SERVER_URL}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+            *Ce commentaire a été généré automatiquement par la pipeline CI.*
+            `;
+
+            if (botComment) {
+              // Met à jour le commentaire existant
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: commentBody,
+              });
+            } else {
+              // Crée un nouveau commentaire
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: commentBody,
+              });
+            }
