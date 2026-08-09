@@ -33,7 +33,6 @@ jobs:
         id: benchmark
         shell: bash
         run: |
-          # Exécute le benchmark sur les données générées
           python3 benchmark/main.py --data-path laravel-docs-data/laravel_training.jsonl > benchmark_results.txt 2>&1
           echo "benchmark_output=$(cat benchmark_results.txt)" >> "$GITHUB_OUTPUT"
 
