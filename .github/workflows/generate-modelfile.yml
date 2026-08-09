@@ -77,7 +77,7 @@ jobs:
 
           # Exécute le script de génération de modelfile
           python3 ollama/main.py \
-            --model "${{ github.event.inputs.model }}" \
+            --from "${{ github.event.inputs.model }}" \
             --data input.jsonl \
             --output "$OUTPUT_FILENAME"
 
