@@ -1,0 +1,78 @@
+name: Update Laravel Docs Submodule
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *' # once a day
+
+jobs:
+
+  update-submodule:
+    runs-on: ubuntu-latest
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Get current Laravel Docs version
+        id: current_version
+        run: |
+          CURRENT_BRANCH=$(git -C laravel-docs rev-parse --abbrev-ref HEAD)
+          echo "current_branch=$CURRENT_BRANCH" >> $GITHUB_OUTPUT
+          if [[ $CURRENT_BRANCH =~ ^([0-9]+)\.x$ ]]; then
+            CURRENT_VERSION=${BASH_REMATCH[1]}
+            echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          else
+            echo "current_version=0" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Fetch latest Laravel Docs versions
+        id: latest_version
+        run: |
+          git -C laravel-docs fetch --prune
+          BRANCHES=$(git -C laravel-docs branch -r | grep -E '^[0-9]+\.x$' | sort -V | tail -n 1)
+          if [ -n "$BRANCHES" ]; then
+            LATEST_BRANCH=$(echo "$BRANCHES" | awk '{print $NF}' | sed 's/origin\///')
+            LATEST_VERSION=${LATEST_BRANCH%.x}
+            echo "latest_branch=$LATEST_BRANCH" >> $GITHUB_OUTPUT
+            echo "latest_version=$LATEST_VERSION" >> $GITHUB_OUTPUT
+          else
+            echo "latest_branch=" >> $GITHUB_OUTPUT
+            echo "latest_version=0" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Update submodule to latest version
+        if: steps.latest_version.outputs.latest_version > steps.current_version.outputs.current_version
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git submodule set-branch --branch ${{ steps.latest_version.outputs.latest_branch }} laravel-docs
+          git submodule update --remote --recursive laravel-docs
+          git add .gitmodules laravel-docs
+          git commit -m "chore: update laravel-docs to v${{ steps.latest_version.outputs.latest_version }}"
+          git push origin HEAD:${{ github.ref_name }}
+
+      - name: Update submodule to current branch
+        if: steps.latest_version.outputs.latest_version <= steps.current_version.outputs.current_version
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git submodule update --remote --recursive laravel-docs
+          if ! git diff --quiet; then
+            git add laravel-docs
+            git commit -m "chore: update laravel-docs submodule to latest commit"
+            git push origin HEAD:${{ github.ref_name }}
+          fi
+
+      - name: Create GitHub Release via API
+        run: |
+          TAG_NAME="laravel-docs-process-$(date +'%Y-%m-%d')"
+          curl -s -X POST \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            -d "{\"tag_name\":\"$TAG_NAME\",\"name\":\"Release $TAG_NAME\",\"draft\":false,\"prerelease\":false}" \
+            https://api.github.com/repos/${{ github.repository }}/releases

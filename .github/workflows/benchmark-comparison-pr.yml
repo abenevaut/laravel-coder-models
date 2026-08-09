@@ -1,0 +1,156 @@
+name: Benchmark Comparison on PR for benchmark/
+
+on:
+  pull_request:
+    paths:
+      - 'benchmark/**'
+    types: [opened, synchronize, reopened]
+
+jobs:
+  compare-benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          submodules: recursive
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install jq
+        run: sudo apt-get install -y jq
+
+      - name: Download latest release assets
+        run: |
+          # Récupère la dernière release
+          LATEST_RELEASE=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/${{ github.repository }}/releases/latest)
+
+          # Télécharge laravel_training.jsonl
+          ASSET_URL=$(echo "$LATEST_RELEASE" | jq -r '.assets[] | select(.name == "laravel_training.jsonl") | .browser_download_url')
+          if [ -n "$ASSET_URL" ]; then
+            wget -O laravel_training.jsonl "$ASSET_URL"
+          else
+            echo "Erreur : laravel_training.jsonl non trouvé dans la dernière release."
+            exit 1
+          fi
+
+          # Télécharge les résultats du benchmark de la dernière release
+          BENCHMARK_ASSET_URL=$(echo "$LATEST_RELEASE" | jq -r '.assets[] | select(.name | test("benchmark_results.*\\.json$")) | .browser_download_url' | head -n 1)
+          if [ -n "$BENCHMARK_ASSET_URL" ]; then
+            wget -O old_benchmark_results.json "$BENCHMARK_ASSET_URL"
+          else
+            echo "Avertissement : Aucun fichier de résultats de benchmark trouvé dans la dernière release. Comparaison impossible."
+          fi
+
+      - name: Run New Benchmark
+        id: new_benchmark
+        run: |
+          python3 benchmark/main.py --data-path laravel_training.jsonl > new_benchmark_results.json 2>&1
+          echo "new_benchmark_output=$(cat new_benchmark_results.json)" >> $GITHUB_OUTPUT
+
+      - name: Compare Benchmark Results
+        id: compare
+        run: |
+          if [ -f "old_benchmark_results.json" ]; then
+            echo "Comparaison des résultats du benchmark :"
+            echo "----------------------------------------"
+
+            # Extrait les métriques des deux fichiers
+            OLD_METRICS=$(jq '.' old_benchmark_results.json)
+            NEW_METRICS=$(jq '.' new_benchmark_results.json)
+
+            # Initialise la variable pour stocker les résultats de la comparaison
+            COMPARISON_OUTPUT=""
+
+            # Liste des métriques à comparer (à adapter selon ton benchmark)
+            METRICS=("valid_code_rate" "hallucination_rate" "topic_coverage_rate" "response_accuracy")
+
+            for METRIC in "${METRICS[@]}"; do
+              OLD_VALUE=$(echo "$OLD_METRICS" | jq -r ".${METRIC} // \"N/A\"")
+              NEW_VALUE=$(echo "$NEW_METRICS" | jq -r ".${METRIC} // \"N/A\"")
+
+              if [ "$OLD_VALUE" != "N/A" ] && [ "$NEW_VALUE" != "N/A" ]; then
+                # Calcule la différence
+                DIFF=$(echo "$NEW_VALUE - $OLD_VALUE" | bc -l 2>/dev/null || echo "N/A")
+
+                # Détermine si c'est une amélioration ou une régression
+                if (( $(echo "$DIFF > 0" | bc -l) )); then
+                  STATUS="✅ **+$DIFF** (Amélioration)"
+                elif (( $(echo "$DIFF < 0" | bc -l) )); then
+                  STATUS="❌ **$DIFF** (Régression)"
+                else
+                  STATUS="➖ **$DIFF** (Stable)"
+                fi
+
+                COMPARISON_OUTPUT+="- **${METRIC}** : $OLD_VALUE → $NEW_VALUE $STATUS\n"
+              fi
+            done
+
+            echo "comparison_output=$COMPARISON_OUTPUT" >> $GITHUB_OUTPUT
+          else
+            echo "comparison_output=Aucune comparaison possible (pas de résultats de benchmark dans la dernière release)." >> $GITHUB_OUTPUT
+          fi
+
+      - name: Upload New Benchmark Results as Artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: new-benchmark-results
+          path: |
+            new_benchmark_results.json
+            benchmark/results/
+            benchmark/reports/
+          retention-days: 7
+
+      - name: Post Comparison Results as PR Comment
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.find(comment => comment.user.login === 'github-actions[bot]' && comment.body.includes('### 📊 Comparaison des Résultats du Benchmark'));
+
+            const comparisonOutput = `${{ steps.compare.outputs.comparison_output }}`;
+            const newBenchmarkOutput = `${{ steps.new_benchmark.outputs.new_benchmark_output }}`;
+
+            const commentBody = `
+            ### 📊 Comparaison des Résultats du Benchmark
+
+            **Données utilisées** : \`laravel_training.jsonl\` (téléchargé depuis la dernière release)
+
+            **Nouveaux résultats** :
+            \`\`\`
+            ${newBenchmarkOutput}
+            \`\`\`
+
+            **Comparaison avec la dernière release** :
+            ${comparisonOutput.replace(/\n/g, '\n')}
+
+            **Artifacts** : [Télécharger les nouveaux résultats du benchmark](${process.env.GITHUB_SERVER_URL}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+            *Ce commentaire a été généré automatiquement par la pipeline CI.*
+            `;
+
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: commentBody,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: commentBody,
+              });
+            }

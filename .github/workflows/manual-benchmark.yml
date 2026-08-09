@@ -1,0 +1,72 @@
+name: Manual Benchmark Execution
+
+on:
+  workflow_dispatch:
+    inputs:
+      jsonl_file:
+        description: 'URL du fichier JSONL à analyser (optionnel)'
+        required: false
+        type: string
+      jsonl_content:
+        description: 'Contenu JSONL à coller directement (optionnel)'
+        required: false
+        type: string
+
+jobs:
+  run-benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install jq
+        run: sudo apt-get install -y jq
+
+      - name: Create JSONL file from input
+        id: prepare_jsonl
+        run: |
+          # Si un fichier est fourni via l'input (URL)
+          if [ -n "${{ github.event.inputs.jsonl_file }}" ]; then
+            echo "Téléchargement du fichier JSONL depuis l'URL : ${{ github.event.inputs.jsonl_file }}"
+            wget -O input.jsonl "${{ github.event.inputs.jsonl_file }}"
+
+          # Si du contenu JSONL est collé directement
+          elif [ -n "${{ github.event.inputs.jsonl_content }}" ]; then
+            echo "Utilisation du contenu JSONL collé"
+            echo "${{ github.event.inputs.jsonl_content }}" > input.jsonl
+
+          # Sinon, télécharge le fichier depuis la dernière release
+          else
+            echo "Aucun fichier ou contenu fourni, téléchargement depuis la dernière release"
+
+            # Récupère la dernière release
+            LATEST_RELEASE=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Accept: application/vnd.github.v3+json" \
+              https://api.github.com/repos/${{ github.repository }}/releases/latest)
+
+            # Extrait l'URL du fichier laravel_training.jsonl depuis les assets de la release
+            ASSET_URL=$(echo "$LATEST_RELEASE" | jq -r '.assets[] | select(.name == "laravel_training.jsonl") | .browser_download_url')
+
+            if [ -n "$ASSET_URL" ]; then
+              echo "Téléchargement de laravel_training.jsonl depuis la release : $ASSET_URL"
+              wget -O input.jsonl "$ASSET_URL"
+            else
+              echo "Erreur : le fichier laravel_training.jsonl n'a pas été trouvé dans la dernière release."
+              exit 1
+            fi
+          fi
+
+      - name: Run Benchmark
+        run: python3 benchmark/main.py --data-path input.jsonl
+
+      - name: Upload Benchmark Results as Artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: benchmark-results
+          path: |
+            benchmark/results/
+            benchmark/reports/
+          retention-days: 7

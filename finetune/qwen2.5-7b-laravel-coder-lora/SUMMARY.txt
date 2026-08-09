@@ -1,1 +1,0 @@
-Bob (LoRA) — experimental Qwen2.5-Coder 7B fine-tuned for Laravel 10–13; detects version first, version-correct code. Fallback: bhavingajjar/qwen2.5-7b-laravel-coder. Run: ollama run bhavingajjar/qwen2.5-7b-laravel-coder-lora

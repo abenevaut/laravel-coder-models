@@ -1,0 +1,42 @@
+{
+  "TOPICS": {
+    "routing.md": "routing, route groups, named routes, route model binding",
+    "eloquent.md": "Eloquent ORM, models, scopes, accessors, mutators",
+    "eloquent-relationships.md": "Eloquent relationships: hasMany, belongsTo, morphTo, pivot",
+    "migrations.md": "database migrations, schema builder, foreign keys",
+    "validation.md": "form validation, rules, custom validators, Form Requests",
+    "authentication.md": "authentication, guards, providers, login",
+    "authorization.md": "authorization, gates, policies, can middleware",
+    "middleware.md": "HTTP middleware, kernel, route middleware",
+    "controllers.md": "controllers, resource controllers, invokable controllers",
+    "requests.md": "HTTP requests, input, files, headers",
+    "responses.md": "HTTP responses, JSON, redirects, cookies",
+    "blade.md": "Blade templating, components, layouts, directives",
+    "queues.md": "job queues, workers, failed jobs, Horizon",
+    "events.md": "events and listeners, event discovery",
+    "cache.md": "caching, Redis, cache tags, remember",
+    "session.md": "session management, drivers, flash data",
+    "mail.md": "Mailable classes, queues, markdown mail",
+    "notifications.md": "notifications, channels, database notifications",
+    "testing.md": "PHPUnit, feature tests, unit tests, assertions",
+    "artisan.md": "Artisan commands, scheduling, custom commands",
+    "container.md": "service container, dependency injection, bindings",
+    "providers.md": "service providers, boot, register",
+    "facades.md": "facades, facade pattern, real-time facades",
+    "database.md": "query builder, raw queries, transactions",
+    "filesystem.md": "file storage, disks, S3, local storage",
+    "broadcasting.md": "WebSockets, broadcasting, Echo, Reverb",
+    "sanctum.md": "API authentication with Sanctum, SPA auth, tokens",
+    "passport.md": "OAuth2 with Passport, clients, scopes",
+    "horizon.md": "Laravel Horizon, queue monitoring, supervisors",
+    "telescope.md": "Laravel Telescope debugging, watchers",
+    "octane.md": "Laravel Octane, Swoole, FrankenPHP, performance",
+    "scout.md": "full-text search with Scout, Algolia, Meilisearch",
+    "cashier-paddle.md": "subscriptions with Cashier, billing"
+  },
+  "SKIP_FILES": ["readme.md", "license.md", "contributions.md", "documentation.md"],
+  "PRIORITY_TOPICS": [
+    "routing", "eloquent", "validation", "middleware", "queues",
+    "authentication", "blade", "migrations", "testing", "container"
+  ]
+}

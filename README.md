@@ -1,76 +1,66 @@
-# Laravel Coder Models (Bob)
+## Laravel Docs Processor
 
-Custom Ollama models — **Bob**, a senior PHP/Laravel coding assistant — built on different base LLMs with version-aware [Laravel documentation](https://github.com/laravel/docs) knowledge (v10–v13).
+This project processes Laravel documentation into training data for fine-tuning language models.
 
-## Two paths
+## Initialization and Execution
 
-| Folder | Method | Status |
-|--------|--------|--------|
-| **[modelfile/](modelfile/)** | Prompt-only (SYSTEM + few-shots) | **Production / fallback** |
-| **[finetune/](finetune/)** | LoRA adapter + shorter prompt | **Experimental** |
-
-If fine-tuning fails or underperforms, `modelfile/` models are unchanged.
-
-## Models
-
-| Model | Path | Ollama |
-|-------|------|--------|
-| `qwen2.5-7b-laravel-coder` | [modelfile/](modelfile/qwen2.5-7b-laravel-coder/) | [ollama.com](https://ollama.com/bhavingajjar/qwen2.5-7b-laravel-coder) |
-| `codellama-7b-laravel-coder` | [modelfile/](modelfile/codellama-7b-laravel-coder/) | [ollama.com](https://ollama.com/bhavingajjar/codellama-7b-laravel-coder) |
-| `deepseek-v2-16b-laravel-coder` | [modelfile/](modelfile/deepseek-v2-16b-laravel-coder/) | [ollama.com](https://ollama.com/bhavingajjar/deepseek-v2-16b-laravel-coder) |
-| `qwen2.5-7b-laravel-coder-lora` | [finetune/](finetune/qwen2.5-7b-laravel-coder-lora/) | [ollama.com](https://ollama.com/bhavingajjar/qwen2.5-7b-laravel-coder-lora) |
-
-## Quick start
-
+### 1. Initialize the Laravel docs git submodule:
 ```bash
-# Production (prompt-only Bob)
-ollama run bhavingajjar/qwen2.5-7b-laravel-coder
-
-# Experimental LoRA (after train + publish)
-ollama run bhavingajjar/qwen2.5-7b-laravel-coder-lora
+git submodule add --branch 13.x https://github.com/laravel/docs.git laravel-docs
+git submodule update --remote
 ```
 
-## Version-aware behavior
-
-Bob supports **Laravel 10.x through 13.x**. Before answering:
-
-1. Detects the Laravel version from `composer.json`, `bootstrap/app.php`, or code patterns
-2. States the detected version explicitly
-3. Provides version-correct code and guidance
-
-## Repository layout
-
-```
-.
-├── README.md
-├── laravel-docs/              # Official Laravel docs v10–v13
-├── shared/                    # build_training_data.py, build_modelfile.py, data/
-├── modelfile/                 # Production — prompt-only Bob (3 models)
-└── finetune/                  # Experimental — LoRA (Qwen first)
-```
-
-## Publish production models
-
+### 2. Run the processing script:
 ```bash
-./modelfile/qwen2.5-7b-laravel-coder/publish.sh
-./modelfile/codellama-7b-laravel-coder/publish.sh
-./modelfile/deepseek-v2-16b-laravel-coder/publish.sh
+python3 laravel-docs-process/main.py
 ```
 
-## Fine-tune (experimental)
-
+### 3. Run with LLM qualification (Mistral API):
 ```bash
-pip install -r finetune/requirements.txt
-python3 finetune/prepare_dataset.py
-python3 finetune/train_lora_minimal.py          # CPU — slow on Intel Iris Xe
-./finetune/qwen2.5-7b-laravel-coder-lora/publish.sh
+# Enable LLM qualification
+python3 laravel-docs-process/main.py --llm
+
+# Or set LLM_ENABLED=true in .env file
 ```
 
-See [finetune/README.md](finetune/README.md) for Colab fallback and adapter conversion.
+## LLM Configuration
 
-## Updating docs
+The project supports both **Mistral API** (recommended) and **Ollama** (local).
 
+### Mistral API (Recommended)
+1. Get your API key from [Mistral Console](https://console.mistral.ai/)
+2. Configure in `.env`:
 ```bash
-git -C laravel-docs/13.x pull
-./modelfile/qwen2.5-7b-laravel-coder/publish.sh
+LLM_ENABLED=true
+LLM_API_URL=https://api.mistral.ai/v1
+LLM_MODEL=mistral-small
+LLM_API_KEY=your_api_key_here
 ```
+
+3. Install required dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+### Ollama (Local Alternative)
+If you prefer local LLM:
+```bash
+LLM_ENABLED=true
+LLM_API_URL=http://localhost:11434
+LLM_MODEL=llama3.2:3b
+LLM_API_KEY=
+```
+
+Run Ollama server:
+```bash
+ollama serve
+ollama pull llama3.2:3b
+```
+
+## Output Files
+
+The processor generates the following files in `laravel-docs-data/`:
+- `laravel_training.jsonl` - Training data in JSONL format
+- `laravel_knowledge.md` - Knowledge digest
+- `few_shot_examples.json` - Example Q&A pairs
+- `meta.json` - Processing metadata and KPIs

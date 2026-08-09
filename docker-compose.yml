@@ -1,0 +1,15 @@
+services:
+
+  #
+  # docker-compose run process
+  #
+  process:
+    build: .
+    volumes:
+      - ./laravel-docs:/app/laravel-docs
+      - ./laravel-docs-data:/app/laravel-docs-data
+      - ./.env:/app/.env:ro
+    environment:
+      - LLM_ENABLED=${LLM_ENABLED:-false}
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - LLM_API_URL=${LLM_API_URL:-}

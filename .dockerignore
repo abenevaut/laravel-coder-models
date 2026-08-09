@@ -1,0 +1,14 @@
+# Ignore les fichiers inutiles pour réduire la taille de l'image
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+venv/
+.DS_Store
+.git/
+.gitmodules
+laravel-docs/  # Monté en volume, pas besoin de le copier
+laravel-docs-data/  # Monté en volume
+*.md
+!README.md

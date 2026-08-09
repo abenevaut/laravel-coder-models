@@ -1,0 +1,93 @@
+name: Generate Modelfile
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: 'Modèle Ollama à utiliser'
+        required: true
+        type: choice
+        default: 'mistral:7b'
+        options:
+          - 'mistral:7b'
+          - 'llama3.2:3b'
+      jsonl_file:
+        description: 'URL du fichier JSONL à utiliser (optionnel)'
+        required: false
+        type: string
+      jsonl_content:
+        description: 'Contenu JSONL à coller directement (optionnel)'
+        required: false
+        type: string
+
+jobs:
+  generate-modelfile:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          if [ -f "requirements.txt" ]; then
+            pip install -r requirements.txt
+          fi
+
+      - name: Install jq
+        run: sudo apt-get install -y jq
+
+      - name: Prepare JSONL file
+        run: |
+          # Si un fichier JSONL est fourni via une URL
+          if [ -n "${{ github.event.inputs.jsonl_file }}" ]; then
+            echo "Téléchargement du fichier JSONL depuis l'URL : ${{ github.event.inputs.jsonl_file }}"
+            wget -O input.jsonl "${{ github.event.inputs.jsonl_file }}"
+
+          # Si du contenu JSONL est collé directement
+          elif [ -n "${{ github.event.inputs.jsonl_content }}" ]; then
+            echo "Utilisation du contenu JSONL collé"
+            echo "${{ github.event.inputs.jsonl_content }}" > input.jsonl
+
+          # Sinon, télécharge le fichier depuis la dernière release
+          else
+            echo "Aucun fichier ou contenu fourni, téléchargement depuis la dernière release"
+
+            # Récupère la dernière release
+            LATEST_RELEASE=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Accept: application/vnd.github.v3+json" \
+              https://api.github.com/repos/${{ github.repository }}/releases/latest)
+
+            # Extrait l'URL du fichier laravel_training.jsonl depuis les assets de la release
+            ASSET_URL=$(echo "$LATEST_RELEASE" | jq -r '.assets[] | select(.name == "laravel_training.jsonl") | .browser_download_url')
+
+            if [ -n "$ASSET_URL" ]; then
+              echo "Téléchargement de laravel_training.jsonl depuis la release : $ASSET_URL"
+              wget -O input.jsonl "$ASSET_URL"
+            else
+              echo "Erreur : le fichier laravel_training.jsonl n'a pas été trouvé dans la dernière release."
+              exit 1
+            fi
+          fi
+
+      - name: Generate Modelfile
+        run: |
+          # Remplace ":" par "_" dans le nom du modèle
+          MODEL_NAME=$(echo "${{ github.event.inputs.model }}" | tr ':' '_')
+          OUTPUT_FILENAME="laravel-docs-$MODEL_NAME.modelfile"
+
+          # Exécute le script de génération de modelfile
+          python3 ollama/generate_modelfile.py \
+            --model "${{ github.event.inputs.model }}" \
+            --data input.jsonl \
+            --output "$OUTPUT_FILENAME"
+
+          # Affiche le contenu du fichier généré pour vérification
+          echo "Contenu du modelfile généré :"
+          cat "$OUTPUT_FILENAME"
+
+      - name: Upload Modelfile as Artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: modelfile
+          path: laravel-docs-*.modelfile
+          retention-days: 7
