@@ -4,7 +4,6 @@
 Usage:
     python3 ollama/main.py --from mistral:7b
     python3 ollama/main.py --from mistral:7b --output my-laravel-coder
-    python3 ollama/main.py --base-model llama3.2:3b --output laravel-coder-llama
 
 This script generates an Ollama Modelfile using the processed Laravel documentation
 data (laravel_training.jsonl) and metadata (meta.json) to create a specialized

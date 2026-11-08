@@ -14,7 +14,7 @@ python3 ollama/main.py --from mistral:7b
 python3 ollama/main.py --from mistral:7b --output laravel-coder-mistral
 
 # Generate with custom number of sample messages (default: 100)
-python3 ollama/main.py --from llama3.2:3b --output laravel-coder-llama --samples 200
+python3 ollama/main.py --from mistral:7b --output laravel-coder-mistral --samples 200
 
 # Use all available training data (540 samples)
 python3 ollama/main.py --from mistral:7b --samples 540
