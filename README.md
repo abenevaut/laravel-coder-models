@@ -4,6 +4,14 @@ This project processes Laravel documentation into training data for fine-tuning 
 
 ## Initialization and Execution
 
+At project root, start python3 virtual env. and download dependencies:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
 ### 1. Initialize the Laravel docs git submodule:
 ```bash
 git submodule add --branch 13.x https://github.com/laravel/docs.git laravel-docs
@@ -35,11 +43,6 @@ LLM_ENABLED=true
 LLM_API_URL=https://api.mistral.ai/v1
 LLM_MODEL=mistral-small
 LLM_API_KEY=your_api_key_here
-```
-
-3. Install required dependencies:
-```bash
-pip install -r requirements.txt
 ```
 
 ### Ollama (Local Alternative)
